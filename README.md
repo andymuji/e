@@ -1,2 +1,163 @@
-# e
-e
+# Home Robot Capstone
+
+An assistive mobile robot that can map a house, navigate to named locations, avoid obstacles and people, climb stairs, and carry a small payload.
+
+## Scope decision
+
+Treat stair climbing as a separate mechanical subsystem and risk track. A robot that safely climbs stairs is substantially harder than a wheeled indoor robot, so the project should first prove navigation on one floor in simulation and on a controlled flat test area. Do not put a person or an unsecured payload near a prototype until the emergency-stop and low-level safety behavior has been tested.
+
+## Proposed system
+
+```text
+Camera / lidar / wheel encoders / IMU
+								|
+								v
+				Sensor and robot drivers
+								|
+								v
+			 Localization + map (ROS 2)
+								|
+								v
+			Planner + obstacle avoidance
+								|
+								v
+			 Motion controller / motors
+
+Voice command -> intent parser -> named location -> navigation goal
+Camera during mapping -> optional human-reviewed location suggestion
+Web interface -> map, locations, robot state, goal, emergency stop
+```
+
+Use ROS 2 as the robotics backbone. Keep hardware drivers, navigation, voice, mapping UI, and stair logic in separate packages or services so each part can be simulated and tested without the complete robot.
+
+## Recommended capstone scope
+
+### Must demonstrate
+
+- A map created from a controlled indoor environment.
+- Named locations such as `kitchen` and `front door` shown in a mapping interface.
+- A spoken command such as “go to the kitchen” converted into a navigation goal.
+- Obstacle avoidance for furniture and a person crossing the robot's path.
+- A hard emergency stop that overrides software commands.
+- A small payload carried on level ground without changing the robot's safe behavior.
+
+### Stretch goals
+
+- Camera-assisted suggestions for room or object labels during mapping, always requiring human confirmation.
+- Multi-floor map handling.
+- A stair-climbing module tested first on a fixture or instrumented test rig, then only on stairs with a physical safety tether and a human operator.
+
+### Explicit non-goals for the first version
+
+- Fully autonomous operation around unsupervised people.
+- Carrying heavy, fragile, hot, or hazardous items.
+- Letting an AI model directly control motor speeds.
+- Treating camera labels as authoritative navigation goals.
+
+## Build in vertical slices
+
+1. **Safety and control:** define `Sensor`, `DriveCommand`, and `EmergencyStop` interfaces. In a mock simulator, verify that a close obstacle produces stop or slow behavior and that emergency stop always wins.
+2. **Base robot:** drive the robot manually on flat ground. Add motor feedback, battery monitoring, bumper sensing, and a physical emergency stop.
+3. **Simulation:** create a small house world and validate localization, mapping, and navigation before risking hardware. Use recorded sensor data where possible.
+4. **Autonomous navigation:** integrate a 2D lidar or depth sensor, wheel encoders, and IMU. Start with one room, then a full floor. Tune inflation and stopping distances for humans and furniture.
+5. **Locations and interface:** allow an operator to save map poses as named locations, view robot state, send a goal, cancel a goal, and trigger emergency stop.
+6. **Voice:** convert speech to a small allow-listed intent set (`go to`, `stop`, `where are you`, `return`). Confirm ambiguous locations instead of guessing.
+7. **Carrying:** add a low center-of-gravity tray and test payload limits on level ground. Revalidate braking, turning, and obstacle clearance.
+8. **Stairs:** only after the flat-ground system is reliable, evaluate a dedicated stair mechanism with a written hazard analysis, tether, mechanical braking, and a human-in-the-loop test protocol.
+
+## Core ROS 2 repositories
+
+These projects provide the first navigation stack. Pin versions to the chosen ROS 2 distribution instead of tracking the default branch indefinitely.
+
+| Step | Capability | Repository | Integration result |
+| --- | --- | --- | --- |
+| 1. Map the floor | Build and save a 2D occupancy map from a manually driven robot | [SLAM Toolbox](https://github.com/SteveMacenski/slam_toolbox) | A saved map of one controlled floor, with the map file committed or stored as a documented test artifact |
+| 2. Locate the robot | Estimate the robot pose from the saved map and live LiDAR data | [Nav2 AMCL](https://github.com/ros-navigation/navigation2/tree/main/nav2_amcl) | The robot pose remains stable while driving through the mapped test area |
+| 3. Navigate to destinations | Plan a route, follow it, and replan around newly detected obstacles | [Nav2](https://github.com/ros-navigation/navigation2) | A goal sent in RViz or the operator interface reaches a named location without entering configured keep-out margins |
+| 4. Avoid moving humans | Apply speed limits or stop behavior from live sensor observations | [Nav2 Collision Monitor](https://github.com/ros-navigation/navigation2/tree/main/nav2_collision_monitor) | A person or close obstacle causes the robot to slow or stop, then resume or replan only after the path is clear |
+| 5. Add simple controls | Send navigation goals from a small Python control layer | [Nav2 Simple Commander](https://github.com/ros-navigation/navigation2/tree/main/nav2_simple_commander) | Buttons can save and send named goals such as `kitchen` and `sofa`, cancel a goal, and report success or failure |
+
+### Integration order
+
+1. Bring up the robot description, LiDAR, odometry, transforms, and manual teleoperation.
+2. Run SLAM Toolbox and save a map while driving slowly around one floor.
+3. Load that map into Nav2 AMCL and verify localization before enabling autonomous motion.
+4. Configure Nav2's robot footprint, inflation radius, maximum speeds, stopping behavior, and recovery actions from measured robot dimensions.
+5. Add Collision Monitor as an independent safety layer. Test sensor timeouts and stop behavior before testing people.
+6. Wrap Nav2 Simple Commander in the project's `robot_locations` package and expose only allow-listed actions to voice and web clients.
+
+Do not use the voice service or camera-based suggestions as a substitute for localization or obstacle sensing. They may request a named goal, but Nav2 and the safety controller decide whether and how the robot moves.
+
+## Suggested repository layout
+
+```text
+robot/
+	ros2_ws/src/
+		robot_description/       # URDF, meshes, transforms
+		robot_bringup/            # launch files and parameters
+		robot_base/               # motors, encoders, battery, e-stop
+		robot_safety/             # speed limits, stopping rules, watchdogs
+		robot_navigation/         # mapping, localization, planning config
+		robot_voice/              # speech-to-intent adapter
+		robot_locations/          # named poses and map metadata
+		robot_interfaces/         # shared messages and service definitions
+	simulation/                 # simulator world and test scenarios
+	web_ui/                     # map and operator controls
+	hardware/                   # wiring, bills of materials, CAD references
+	docs/                       # decisions, hazards, test procedures
+	tests/                      # unit, integration, and scenario tests
+```
+
+## Hardware selection principles
+
+Choose the platform around the safety problem, not just the motor torque:
+
+- Differential-drive or similarly stable base for the first floor-navigation prototype.
+- 2D lidar for reliable planar obstacle detection, plus depth camera if needed for people and payload awareness.
+- Wheel encoders and IMU for odometry.
+- Physical normally-closed emergency-stop circuit that removes motor power.
+- Bumper or contact sensors, motor current monitoring, battery protection, and a watchdog.
+- Onboard computer capable of running ROS 2 and navigation locally; do not require cloud connectivity for stopping or driving.
+
+The stair mechanism should be selected only after the team has documented stair dimensions, robot mass, center of gravity, traction, failure modes, and a recovery procedure. A separate tracked or legged stair robot may be a better research prototype than modifying a flat-floor base late in the project.
+
+## Safety invariants
+
+- Loss of command, sensor timeout, localization failure, or low battery causes a controlled stop.
+- Emergency stop is physical, latched, and independent of the network and AI services.
+- Voice and vision may request goals, but never bypass the safety controller or directly set motor power.
+- Human detection reduces speed and increases stopping distance; it does not guarantee safe operation by itself.
+- Every hardware test has a tether or exclusion zone appropriate to the failure mode.
+
+## GitHub workflow
+
+Track each vertical slice as an issue with acceptance tests. Use pull requests for hardware and software changes, and attach a short test recording or log for behavior changes. Keep a decision record for the ROS 2 distribution, simulator, sensors, base platform, voice provider, and stair strategy.
+
+Suggested first issues:
+
+1. Choose ROS 2 distribution, simulator, language, and license.
+2. Write the hazard analysis and emergency-stop test procedure.
+3. ~~Implement the mock obstacle-stop controller with unit tests.~~ **Completed:** the first hardware-independent safety slice is in `robot/ros2_ws/src/robot_safety`.
+4. Select the flat-floor base, sensors, compute board, and power system.
+5. Create the ROS 2 workspace and a minimal simulated house.
+6. Add CI that runs formatting, unit tests, and package builds.
+
+### Current implementation
+
+The first safety controller is implemented without a ROS 2 dependency so it can be tested in this repository immediately. It converts the nearest obstacle reading into a bounded decision:
+
+- `clear`: full speed allowed when the path is outside the caution distance.
+- `caution`: speed limited to 35% when an obstacle is nearby.
+- `stop`: zero speed for a close obstacle, emergency stop, or invalid sensor data.
+
+Run its six unit tests with:
+
+```bash
+PYTHONPATH=robot/ros2_ws/src/robot_safety python3 -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
+```
+
+The physical test procedure is documented in [docs/safety-test-procedure.md](docs/safety-test-procedure.md). The next implementation slice is to wrap this controller in a ROS 2 package after the team selects the ROS 2 distribution and robot base.
+
+## Definition of done for the first milestone
+
+In simulation and in a controlled flat-floor test, a robot stops before a configured obstacle, responds to a physical emergency stop, and can be commanded to a single named location. The behavior is reproducible from a documented setup and produces logs that the team can inspect.
