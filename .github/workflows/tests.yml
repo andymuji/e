@@ -37,3 +37,4 @@ jobs:
         with:
           package-name: robot_core robot_locations robot_navigation robot_safety robot_voice
           target-ros2-distro: jazzy
+          import-token: ${{ secrets.GITHUB_TOKEN }}
