@@ -139,8 +139,8 @@ Suggested first issues:
 2. Write the hazard analysis and emergency-stop test procedure.
 3. ~~Implement the mock obstacle-stop controller with unit tests.~~ **Completed:** the first hardware-independent safety slice is in `robot/ros2_ws/src/robot_safety`.
 4. Select the flat-floor base, sensors, compute board, and power system.
-5. Create the ROS 2 workspace and a minimal simulated house.
-6. Add CI that runs formatting, unit tests, and package builds.
+5. ~~Create the ROS 2 workspace and a minimal simulated house.~~ **Partially completed:** hardware-independent navigation, locations, voice, and planner packages are in `robot/ros2_ws/src`; the ROS 2 wrapper and simulator world still require the selected ROS 2 distribution and simulator.
+6. ~~Add CI that runs formatting, unit tests, and package builds.~~ **Partially completed:** GitHub Actions now runs the Python unit tests and compilation checks; ROS 2 package builds will be added after the ROS 2 baseline is selected.
 
 ### Current implementation
 
@@ -157,6 +157,16 @@ PYTHONPATH=robot/ros2_ws/src/robot_safety python3 -m unittest discover -s robot/
 ```
 
 The physical test procedure is documented in [docs/safety-test-procedure.md](docs/safety-test-procedure.md). The next implementation slice is to wrap this controller in a ROS 2 package after the team selects the ROS 2 distribution and robot base.
+
+### Additional completed software foundations
+
+- `robot_core` defines validated `Pose2D` and `NavigationGoal` data contracts.
+- `robot_locations` persists operator-approved named poses as JSON and rejects unknown destinations.
+- `robot_voice` parses only a small allow-listed command set and returns `unknown` for ambiguous commands.
+- `robot_navigation` provides a deterministic grid planner for simulator and integration tests, including obstacle detours, replanning, and no-path errors.
+- `.github/workflows/tests.yml` runs all unit tests and Python compilation on pushes and pull requests.
+
+These modules are deliberately independent of ROS 2 so the behavior can be tested in this repository. They are not a replacement for SLAM Toolbox, AMCL, Nav2, Collision Monitor, a speech-to-text engine, or physical safety hardware.
 
 ## Definition of done for the first milestone
 
