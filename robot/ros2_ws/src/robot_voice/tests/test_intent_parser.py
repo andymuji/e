@@ -13,8 +13,20 @@ class VoiceIntentParserTests(unittest.TestCase):
             "kitchen",
         )
 
-    def test_parses_stop(self) -> None:
-        self.assertEqual(self.parser.parse(" emergency stop ").action, "stop")
+    def test_parses_stop_variants(self) -> None:
+        commands = (
+            " emergency stop ",
+            "Stop!",
+            "please stop",
+            "halt now.",
+            "stop the robot now",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(self.parser.parse(command).action, "stop")
+
+    def test_does_not_treat_negated_stop_as_stop(self) -> None:
+        self.assertEqual(self.parser.parse("do not stop").action, "unknown")
 
     def test_parses_home(self) -> None:
         intent = self.parser.parse("return home")

@@ -1,0 +1,9 @@
+{
+  "name": "ROS 2 Jazzy + Gazebo Harmonic",
+  "image": "osrf/ros:jazzy-desktop-full",
+  "containerEnv": {
+    "ROS_DISTRO": "jazzy",
+    "GZ_VERSION": "harmonic"
+  },
+  "postCreateCommand": "apt-get update && apt-get install -y python3-colcon-common-extensions python3-setuptools ros-jazzy-ros-gz && (rosdep init 2>/dev/null || true) && rosdep update && rosdep install --from-paths robot/ros2_ws/src --ignore-src -r -y"
+}

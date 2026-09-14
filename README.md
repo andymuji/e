@@ -171,3 +171,9 @@ These modules are deliberately independent of ROS 2 so the behavior can be teste
 ## Definition of done for the first milestone
 
 In simulation and in a controlled flat-floor test, a robot stops before a configured obstacle, responds to a physical emergency stop, and can be commanded to a single named location. The behavior is reproducible from a documented setup and produces logs that the team can inspect.
+
+## Development baseline and quick start
+
+The first implementation targets **Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic**. The repository now contains five installable ROS 2 Python packages and a fail-closed `robot_safety` command gate.
+
+Start with [the build and run guide](docs/getting-started.md). The rationale and safety consequences are recorded in [ADR 0001](docs/decisions/0001-ros-baseline.md).

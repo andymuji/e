@@ -26,3 +26,14 @@ jobs:
             python -m unittest discover -s robot/ros2_ws/src/robot_voice/tests -v
       - name: Compile Python packages
         run: python -m compileall -q robot/ros2_ws/src
+
+  ros-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: jazzy
+      - uses: ros-tooling/action-ros-ci@v0.4
+        with:
+          package-name: robot_core robot_locations robot_navigation robot_safety robot_voice
+          target-ros2-distro: jazzy

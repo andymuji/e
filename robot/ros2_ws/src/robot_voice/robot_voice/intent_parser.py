@@ -11,6 +11,9 @@ class VoiceIntent:
 class VoiceIntentParser:
     """Parse only explicit, allow-listed robot commands."""
 
+    _stop_pattern = re.compile(
+        r"^(?:please )?(?:stop|halt|emergency stop|stop the robot)(?: now)?$"
+    )
     _go_patterns = (
         re.compile(r"^(?:go|navigate|take me) to the (.+)$"),
         re.compile(r"^(?:go|navigate) (?:to )?(.+)$"),
@@ -18,9 +21,11 @@ class VoiceIntentParser:
 
     def parse(self, transcript: str) -> VoiceIntent:
         command = " ".join(transcript.lower().strip().split())
-        if command in {"stop", "halt", "emergency stop"}:
+        command = re.sub(r"[.!?]+$", "", command).strip()
+
+        if self._stop_pattern.fullmatch(command):
             return VoiceIntent("stop")
-        if command in {"where are you", "where are you?", "report location"}:
+        if command in {"where are you", "report location"}:
             return VoiceIntent("report_location")
         if command in {"return", "return home", "go home", "go to home"}:
             return VoiceIntent("go_to", "home")
