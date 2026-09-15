@@ -4,6 +4,10 @@ const statusLabel = document.querySelector("#safety-label");
 const statusMessage = document.querySelector("#status-message");
 const statusMark = document.querySelector("#status-mark");
 const cancelButton = document.querySelector("#cancel-button");
+const decisionValue = document.querySelector("#decision-value");
+const speedValue = document.querySelector("#speed-value");
+const distanceValue = document.querySelector("#distance-value");
+const ageValue = document.querySelector("#age-value");
 
 async function request(path, options = {}) {
   const response = await fetch(path, options);
@@ -24,12 +28,20 @@ function showError(error) {
 
 function renderStatus(data) {
   const goal = data.goal;
+  const safety = data.safety;
   connection.classList.add("online");
   connection.lastChild.textContent = " Connected to robot";
   statusLabel.textContent = data.safety_message;
   statusMark.textContent = data.safety_state === "clear" ? "OK" : "!";
-  statusMessage.textContent = goal.message || "The robot is ready for a destination.";
+  statusMessage.textContent = safety.reason;
   cancelButton.hidden = goal.state !== "navigating";
+  decisionValue.textContent = safety.state.toUpperCase();
+  speedValue.textContent = `${Math.round(safety.speed_scale * 100)}%`;
+  distanceValue.textContent = safety.nearest_obstacle_distance === null ? "invalid" : `${safety.nearest_obstacle_distance.toFixed(1)} m`;
+  ageValue.textContent = `${safety.reading_age.toFixed(1)} s`;
+  document.querySelectorAll(".scenario-card").forEach((button) => {
+    button.classList.toggle("active", button.dataset.scenario === safety.scenario);
+  });
 }
 
 async function refreshStatus() {
@@ -68,6 +80,21 @@ cancelButton.addEventListener("click", async () => {
   try { await request("/api/goals/cancel", { method: "POST" }); await refreshStatus(); }
   catch (error) { showError(error); }
   finally { cancelButton.disabled = false; }
+});
+
+document.querySelectorAll(".scenario-card").forEach((button) => {
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      await request("/api/safety/scenario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario: button.dataset.scenario }),
+      });
+      await refreshStatus();
+    } catch (error) { showError(error); }
+    finally { button.disabled = false; }
+  });
 });
 
 loadLocations();

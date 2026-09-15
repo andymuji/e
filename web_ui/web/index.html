@@ -3,16 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Home companion</title>
+  <title>Robot developer console</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <main class="shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">HOME COMPANION</p>
-        <h1>Where should we go?</h1>
-        <p class="intro">Choose a room and the robot will take you there.</p>
+        <p class="eyebrow">ROBOT DEVELOPER CONSOLE</p>
+        <h1>Test the safety gate.</h1>
+        <p class="intro">Exercise repeatable sensor conditions before connecting navigation or hardware.</p>
       </div>
       <div class="connection" id="connection"><span></span>Checking robot</div>
     </header>
@@ -26,10 +26,34 @@
       <button class="cancel-button" id="cancel-button" type="button" hidden>Cancel trip</button>
     </section>
 
+    <section class="console-section" aria-labelledby="scenario-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">SAFETY LAB</p>
+          <h2 id="scenario-heading">Run a scenario</h2>
+        </div>
+        <p class="selection-note">These controls change simulated inputs only. They never command motor power.</p>
+      </div>
+      <div class="scenario-grid" id="scenario-grid">
+        <button class="scenario-card" type="button" data-scenario="clear"><strong>Clear path</strong><span>1.5 m obstacle distance</span></button>
+        <button class="scenario-card" type="button" data-scenario="caution"><strong>Caution distance</strong><span>0.6 m obstacle distance</span></button>
+        <button class="scenario-card" type="button" data-scenario="stop"><strong>Close obstacle</strong><span>0.2 m obstacle distance</span></button>
+        <button class="scenario-card" type="button" data-scenario="emergency_stop"><strong>Emergency stop</strong><span>Latched stop signal active</span></button>
+        <button class="scenario-card" type="button" data-scenario="stale_sensor"><strong>Stale sensor</strong><span>Reading is 1.0 s old</span></button>
+        <button class="scenario-card" type="button" data-scenario="invalid_sensor"><strong>Invalid sensor</strong><span>No usable range reading</span></button>
+      </div>
+      <dl class="diagnostics" aria-live="polite">
+        <div><dt>Decision</dt><dd id="decision-value">CLEAR</dd></div>
+        <div><dt>Speed scale</dt><dd id="speed-value">100%</dd></div>
+        <div><dt>Nearest obstacle</dt><dd id="distance-value">1.5 m</dd></div>
+        <div><dt>Reading age</dt><dd id="age-value">0.0 s</dd></div>
+      </dl>
+    </section>
+
     <section class="destinations" aria-labelledby="destination-heading">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">APPROVED PLACES</p>
+          <p class="eyebrow">NAVIGATION SMOKE TEST</p>
           <h2 id="destination-heading">Pick a destination</h2>
         </div>
         <p class="selection-note">Your family or care team can add safe places.</p>

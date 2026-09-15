@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import uuid
 
 from robot_locations import LocationStore
+from robot_safety import SafetyController
 
 
 @dataclass(frozen=True)
@@ -59,20 +60,68 @@ class DemoGoalDispatcher:
             return self._status
 
 
+class SafetyScenarioAdapter:
+    """Deterministic safety inputs for the local developer console."""
+
+    SCENARIOS = {
+        "clear": (1.5, 0.0, False),
+        "caution": (0.6, 0.0, False),
+        "stop": (0.2, 0.0, False),
+        "emergency_stop": (1.5, 0.0, True),
+        "stale_sensor": (1.5, 1.0, False),
+        "invalid_sensor": (None, 0.0, False),
+    }
+
+    def __init__(self) -> None:
+        self._controller = SafetyController()
+        self._scenario = "clear"
+
+    def set_scenario(self, scenario: str) -> None:
+        if scenario not in self.SCENARIOS:
+            raise ValueError(f"unknown safety scenario: {scenario}")
+        self._scenario = scenario
+
+    def status(self) -> dict[str, Any]:
+        distance, reading_age, emergency_stop = self.SCENARIOS[self._scenario]
+        self._controller.set_emergency_stop(emergency_stop)
+        decision = self._controller.evaluate(distance, reading_age)
+        return {
+            "scenario": self._scenario,
+            "state": decision.state.value,
+            "speed_scale": decision.speed_scale,
+            "reason": decision.reason,
+            "nearest_obstacle_distance": distance,
+            "reading_age": reading_age,
+            "emergency_stop": emergency_stop,
+        }
+
+
 class RobotWebApp:
-    def __init__(self, location_store: LocationStore, dispatcher: GoalDispatcher):
+    def __init__(
+        self,
+        location_store: LocationStore,
+        dispatcher: GoalDispatcher,
+        safety: SafetyScenarioAdapter | None = None,
+    ):
         self.location_store = location_store
         self.dispatcher = dispatcher
+        self.safety = safety or SafetyScenarioAdapter()
 
     def locations(self) -> dict[str, list[dict[str, str]]]:
         return {"locations": [{"name": name} for name in self.location_store.names()]}
 
     def status(self) -> dict[str, Any]:
+        safety = self.safety.status()
         return {
             "goal": asdict(self.dispatcher.status()),
-            "safety_state": "clear",
-            "safety_message": "Safety checks are active",
+            "safety_state": safety["state"],
+            "safety_message": safety["reason"],
+            "safety": safety,
         }
+
+    def set_safety_scenario(self, scenario: str) -> dict[str, Any]:
+        self.safety.set_scenario(scenario)
+        return self.safety.status()
 
     def send_goal(self, location_name: str) -> dict[str, Any]:
         goal = self.location_store.get_goal(location_name)
@@ -113,6 +162,9 @@ def make_handler(app: RobotWebApp, web_root: Path):
                     self._send_json(201, result)
                 elif path == "/api/goals/cancel":
                     self._send_json(200, app.cancel_goal())
+                elif path == "/api/safety/scenario":
+                    body = json.loads(self._read_body())
+                    self._send_json(200, app.set_safety_scenario(body["scenario"]))
                 else:
                     self._send_json(404, {"error": "not found"})
             except (KeyError, TypeError, json.JSONDecodeError) as error:
@@ -154,7 +206,7 @@ def make_handler(app: RobotWebApp, web_root: Path):
 def main() -> None:
     root = Path(__file__).parent
     store = LocationStore(root / "locations.json")
-    app = RobotWebApp(store, DemoGoalDispatcher())
+    app = RobotWebApp(store, DemoGoalDispatcher(), SafetyScenarioAdapter())
     server = ThreadingHTTPServer(("127.0.0.1", 8080), make_handler(app, root / "web"))
     print("Robot destination app: http://127.0.0.1:8080")
     try:
