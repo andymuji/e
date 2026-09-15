@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Home companion</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">HOME COMPANION</p>
+        <h1>Where should we go?</h1>
+        <p class="intro">Choose a room and the robot will take you there.</p>
+      </div>
+      <div class="connection" id="connection"><span></span>Checking robot</div>
+    </header>
+
+    <section class="status-panel" aria-live="polite">
+      <div class="status-mark" id="status-mark">OK</div>
+      <div class="status-copy">
+        <p class="status-label" id="safety-label">Safety checks active</p>
+        <p class="status-message" id="status-message">The robot is ready for a destination.</p>
+      </div>
+      <button class="cancel-button" id="cancel-button" type="button" hidden>Cancel trip</button>
+    </section>
+
+    <section class="destinations" aria-labelledby="destination-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">APPROVED PLACES</p>
+          <h2 id="destination-heading">Pick a destination</h2>
+        </div>
+        <p class="selection-note">Your family or care team can add safe places.</p>
+      </div>
+      <div class="location-grid" id="location-grid">
+        <p class="loading">Loading destinations...</p>
+      </div>
+    </section>
+
+    <p class="footer-note">The robot will stop if its sensors detect an obstacle or if the safety system needs attention.</p>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
