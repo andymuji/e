@@ -50,6 +50,22 @@
       </dl>
     </section>
 
+    <section class="console-section" aria-labelledby="voice-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">VOICE GATEWAY</p>
+          <h2 id="voice-heading">Say a command</h2>
+        </div>
+        <p class="selection-note">Typed transcripts take the same path as speech. Only approved destinations become goals.</p>
+      </div>
+      <form class="voice-form" id="voice-form">
+        <label class="visually-hidden" for="voice-input">Voice transcript</label>
+        <input id="voice-input" type="text" placeholder="go to the kitchen" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+      <p class="voice-response" id="voice-response" aria-live="polite">The robot has not heard a command yet.</p>
+    </section>
+
     <section class="destinations" aria-labelledby="destination-heading">
       <div class="section-heading">
         <div>

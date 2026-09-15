@@ -11,6 +11,7 @@ import uuid
 
 from robot_locations import LocationStore
 from robot_safety import SafetyController
+from robot_voice import CommandGateway
 
 
 @dataclass(frozen=True)
@@ -102,10 +103,12 @@ class RobotWebApp:
         location_store: LocationStore,
         dispatcher: GoalDispatcher,
         safety: SafetyScenarioAdapter | None = None,
+        gateway: CommandGateway | None = None,
     ):
         self.location_store = location_store
         self.dispatcher = dispatcher
         self.safety = safety or SafetyScenarioAdapter()
+        self.gateway = gateway or CommandGateway(location_store)
 
     def locations(self) -> dict[str, list[dict[str, str]]]:
         return {"locations": [{"name": name} for name in self.location_store.names()]}
@@ -127,6 +130,26 @@ class RobotWebApp:
         goal = self.location_store.get_goal(location_name)
         goal_id = self.dispatcher.send_goal(goal)
         return {"goal_id": goal_id, "location_name": goal.location_name}
+
+    def handle_voice_command(self, transcript: str) -> dict[str, Any]:
+        outcome = self.gateway.handle(transcript)
+        result: dict[str, Any] = {"action": outcome.action, "response": outcome.response}
+        status = self.dispatcher.status()
+
+        if outcome.action == "stop":
+            if status.state == "navigating" and status.goal_id is not None:
+                self.dispatcher.cancel_goal(status.goal_id)
+        elif outcome.action == "go_to":
+            result["goal_id"] = self.dispatcher.send_goal(outcome.goal)
+            result["location_name"] = outcome.goal.location_name
+        elif outcome.action == "report_location":
+            result["response"] = (
+                f"I am on my way to the {status.location_name}."
+                if status.state == "navigating"
+                else "I am not moving right now."
+            )
+
+        return result
 
     def cancel_goal(self) -> dict[str, str]:
         status = self.dispatcher.status()
@@ -162,6 +185,9 @@ def make_handler(app: RobotWebApp, web_root: Path):
                     self._send_json(201, result)
                 elif path == "/api/goals/cancel":
                     self._send_json(200, app.cancel_goal())
+                elif path == "/api/voice":
+                    body = json.loads(self._read_body())
+                    self._send_json(200, app.handle_voice_command(body["transcript"]))
                 elif path == "/api/safety/scenario":
                     body = json.loads(self._read_body())
                     self._send_json(200, app.set_safety_scenario(body["scenario"]))

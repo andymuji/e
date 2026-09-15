@@ -57,6 +57,17 @@ h2 { font-size: clamp(2rem, 4vw, 3rem); }
 .location-name { font-family: Georgia, serif; font-size: clamp(1.45rem, 3vw, 2rem); }
 .go-label { color: var(--teal); font-size: 0.85rem; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; }
 .loading { color: var(--muted); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.voice-form { display: flex; gap: 12px; }
+.voice-form input { flex: 1; min-width: 0; padding: 15px 17px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; }
+.voice-form input:focus-visible { border-color: var(--teal); outline: none; box-shadow: 0 8px 18px #176b6814; }
+.voice-form button { padding: 15px 28px; border: 2px solid var(--teal); background: var(--teal); color: white; font: inherit; font-weight: 800; cursor: pointer; }
+.voice-form button:hover, .voice-form button:focus-visible { background: var(--teal-dark); border-color: var(--teal-dark); }
+.voice-form button:disabled { cursor: wait; opacity: 0.6; }
+.voice-response { margin: 18px 0 0; padding: 15px 17px; border: 1px solid var(--line); border-left: 5px solid var(--line); background: var(--panel); color: var(--ink); font-size: 1.05rem; }
+.voice-response[data-action="go_to"] { border-left-color: var(--teal); }
+.voice-response[data-action="stop"] { border-left-color: var(--red); }
+.voice-response[data-action="refused"] { border-left-color: var(--yellow); }
 .footer-note { max-width: 680px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); line-height: 1.5; }
 @media (max-width: 640px) {
   .shell { width: min(100% - 28px, 520px); padding-top: 26px; }

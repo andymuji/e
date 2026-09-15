@@ -14,7 +14,7 @@ setup(
     zip_safe=True,
     maintainer="andymuji",
     maintainer_email="andymuji@users.noreply.github.com",
-    description="Voice command intent parsing for the robot.",
+    description="Voice command intent parsing and destination gating for the robot.",
     license="Apache-2.0",
     tests_require=["pytest"],
 )

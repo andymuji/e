@@ -98,7 +98,7 @@ robot/
 		robot_base/               # motors, encoders, battery, e-stop
 		robot_safety/             # speed limits, stopping rules, watchdogs
 		robot_navigation/         # mapping, localization, planning config
-		robot_voice/              # speech-to-intent adapter
+		robot_voice/              # speech-to-intent adapter and destination gating
 		robot_locations/          # named poses and map metadata
 		robot_interfaces/         # shared messages and service definitions
 	simulation/                 # simulator world and test scenarios
@@ -162,7 +162,7 @@ The physical test procedure is documented in [docs/safety-test-procedure.md](doc
 
 - `robot_core` defines validated `Pose2D` and `NavigationGoal` data contracts.
 - `robot_locations` persists operator-approved named poses as JSON and rejects unknown destinations.
-- `robot_voice` parses only a small allow-listed command set and returns `unknown` for ambiguous commands.
+- `robot_voice` parses only a small allow-listed command set and returns `unknown` for ambiguous commands. Its `CommandGateway` then resolves each parsed intent against the approved locations, so an unrecognised destination becomes a spoken refusal rather than a goal, and a stop word anywhere in the transcript wins over everything else.
 - `robot_navigation` provides a deterministic grid planner for simulator and integration tests, including obstacle detours, replanning, and no-path errors.
 - `.github/workflows/tests.yml` runs all unit tests and Python compilation on pushes and pull requests.
 

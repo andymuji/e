@@ -66,6 +66,42 @@ class RobotWebAppTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.set_safety_scenario("drive_fast")
 
+    def test_voice_command_sends_an_approved_destination(self) -> None:
+        result = self.app.handle_voice_command("go to the kitchen")
+
+        self.assertEqual(result["action"], "go_to")
+        self.assertEqual(result["location_name"], "kitchen")
+        self.assertEqual(self.app.status()["goal"]["state"], "navigating")
+
+    def test_voice_command_refusal_never_starts_a_trip(self) -> None:
+        result = self.app.handle_voice_command("go to the moon")
+
+        self.assertEqual(result["action"], "refused")
+        self.assertNotIn("goal_id", result)
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_voice_stop_cancels_an_active_trip(self) -> None:
+        self.app.send_goal("kitchen")
+
+        result = self.app.handle_voice_command("robot please stop")
+
+        self.assertEqual(result["action"], "stop")
+        self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
+
+    def test_voice_stop_is_safe_when_nothing_is_moving(self) -> None:
+        result = self.app.handle_voice_command("stop")
+
+        self.assertEqual(result["action"], "stop")
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_voice_reports_the_current_trip(self) -> None:
+        self.app.send_goal("kitchen")
+
+        result = self.app.handle_voice_command("where are you")
+
+        self.assertEqual(result["action"], "report_location")
+        self.assertEqual(result["response"], "I am on my way to the kitchen.")
+
 
 if __name__ == "__main__":
     unittest.main()

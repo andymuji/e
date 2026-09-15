@@ -8,6 +8,10 @@ const decisionValue = document.querySelector("#decision-value");
 const speedValue = document.querySelector("#speed-value");
 const distanceValue = document.querySelector("#distance-value");
 const ageValue = document.querySelector("#age-value");
+const voiceForm = document.querySelector("#voice-form");
+const voiceInput = document.querySelector("#voice-input");
+const voiceButton = voiceForm.querySelector("button");
+const voiceResponse = document.querySelector("#voice-response");
 
 async function request(path, options = {}) {
   const response = await fetch(path, options);
@@ -80,6 +84,27 @@ cancelButton.addEventListener("click", async () => {
   try { await request("/api/goals/cancel", { method: "POST" }); await refreshStatus(); }
   catch (error) { showError(error); }
   finally { cancelButton.disabled = false; }
+});
+
+voiceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const transcript = voiceInput.value.trim();
+  if (!transcript) return;
+  voiceButton.disabled = true;
+  try {
+    const result = await request("/api/voice", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript }),
+    });
+    voiceResponse.textContent = result.response;
+    voiceResponse.dataset.action = result.action;
+    voiceInput.value = "";
+    await refreshStatus();
+  } catch (error) {
+    voiceResponse.textContent = error.message;
+    voiceResponse.dataset.action = "refused";
+  } finally { voiceButton.disabled = false; }
 });
 
 document.querySelectorAll(".scenario-card").forEach((button) => {
