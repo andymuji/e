@@ -26,20 +26,34 @@
       <button class="cancel-button" id="cancel-button" type="button" hidden>Cancel trip</button>
     </section>
 
+    <section class="estop-panel" aria-labelledby="estop-heading">
+      <div>
+        <h2 id="estop-heading" class="estop-heading">Emergency stop</h2>
+        <p class="estop-note" id="estop-note">
+          Stops the robot and abandons the current trip. It stays engaged until
+          you reset it: a clear sensor reading will not release it.
+        </p>
+      </div>
+      <div class="estop-actions">
+        <button class="estop-button" id="estop-button" type="button">STOP</button>
+        <button class="estop-reset" id="estop-reset" type="button" hidden>Reset stop</button>
+      </div>
+    </section>
+
     <section class="console-section" aria-labelledby="scenario-heading">
       <div class="section-heading">
         <div>
           <p class="eyebrow">SAFETY LAB</p>
           <h2 id="scenario-heading">Run a scenario</h2>
         </div>
-        <p class="selection-note">These controls change simulated inputs only. They never command motor power.</p>
+        <p class="selection-note">These controls change simulated sensor inputs only. They never command motor power, and they cannot release an engaged emergency stop.</p>
       </div>
       <div class="scenario-grid" id="scenario-grid">
         <button class="scenario-card" type="button" data-scenario="clear"><strong>Clear path</strong><span>1.5 m obstacle distance</span></button>
         <button class="scenario-card" type="button" data-scenario="caution"><strong>Caution distance</strong><span>0.6 m obstacle distance</span></button>
         <button class="scenario-card" type="button" data-scenario="stop"><strong>Close obstacle</strong><span>0.2 m obstacle distance</span></button>
-        <button class="scenario-card" type="button" data-scenario="emergency_stop"><strong>Emergency stop</strong><span>Latched stop signal active</span></button>
         <button class="scenario-card" type="button" data-scenario="stale_sensor"><strong>Stale sensor</strong><span>Reading is 1.0 s old</span></button>
+        <button class="scenario-card" type="button" data-scenario="stale_command"><strong>Silent commander</strong><span>Last command is 1.0 s old</span></button>
         <button class="scenario-card" type="button" data-scenario="invalid_sensor"><strong>Invalid sensor</strong><span>No usable range reading</span></button>
       </div>
       <dl class="diagnostics" aria-live="polite">
@@ -47,6 +61,8 @@
         <div><dt>Speed scale</dt><dd id="speed-value">100%</dd></div>
         <div><dt>Nearest obstacle</dt><dd id="distance-value">1.5 m</dd></div>
         <div><dt>Reading age</dt><dd id="age-value">0.0 s</dd></div>
+        <div><dt>Command age</dt><dd id="command-age-value">0.0 s</dd></div>
+        <div><dt>Stop latch</dt><dd id="latch-value">released</dd></div>
       </dl>
     </section>
 
@@ -72,11 +88,39 @@
           <p class="eyebrow">NAVIGATION SMOKE TEST</p>
           <h2 id="destination-heading">Pick a destination</h2>
         </div>
-        <p class="selection-note">Your family or care team can add safe places.</p>
+        <p class="selection-note">Only saved places can become goals. Voice and web share this list.</p>
       </div>
       <div class="location-grid" id="location-grid">
         <p class="loading">Loading destinations...</p>
       </div>
+
+      <form class="location-form" id="location-form">
+        <h3 class="form-heading">Save a place</h3>
+        <p class="form-note">
+          Map coordinates in metres, entered by hand until localization exists.
+          Saving a name that already exists replaces it.
+        </p>
+        <div class="form-row">
+          <label for="location-name">Name</label>
+          <input id="location-name" type="text" placeholder="front door" autocomplete="off" required>
+        </div>
+        <div class="form-row form-row-numbers">
+          <div>
+            <label for="location-x">X</label>
+            <input id="location-x" type="number" step="0.01" value="0" required>
+          </div>
+          <div>
+            <label for="location-y">Y</label>
+            <input id="location-y" type="number" step="0.01" value="0" required>
+          </div>
+          <div>
+            <label for="location-yaw">Yaw</label>
+            <input id="location-yaw" type="number" step="0.01" value="0" required>
+          </div>
+        </div>
+        <button type="submit">Save place</button>
+        <p class="form-response" id="location-response" aria-live="polite"></p>
+      </form>
     </section>
 
     <p class="footer-note">The robot will stop if its sensors detect an obstacle or if the safety system needs attention.</p>

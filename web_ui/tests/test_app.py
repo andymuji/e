@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -22,7 +21,10 @@ class RobotWebAppTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_lists_only_approved_locations(self) -> None:
-        self.assertEqual(self.app.locations(), {"locations": [{"name": "kitchen"}]})
+        self.assertEqual(
+            self.app.locations(),
+            {"locations": [{"name": "kitchen", "x": 1.0, "y": 2.0, "yaw": 0.0}]},
+        )
 
     def test_sends_named_goal_and_exposes_status(self) -> None:
         result = self.app.send_goal(" KITCHEN ")
@@ -56,11 +58,13 @@ class RobotWebAppTests(unittest.TestCase):
         self.assertEqual(status["safety"]["speed_scale"], 0.35)
         self.assertEqual(status["safety"]["nearest_obstacle_distance"], 0.6)
 
-    def test_emergency_stop_scenario_wins_over_clear_path(self) -> None:
-        safety = self.app.set_safety_scenario("emergency_stop")
+    def test_emergency_stop_wins_over_a_clear_path(self) -> None:
+        self.app.set_safety_scenario("clear")
 
-        self.assertEqual(safety["state"], "stop")
-        self.assertEqual(safety["reason"], "emergency stop active")
+        status = self.app.engage_emergency_stop()
+
+        self.assertEqual(status["safety_state"], "stop")
+        self.assertEqual(status["safety_message"], "emergency stop active")
 
     def test_rejects_unknown_safety_scenario(self) -> None:
         with self.assertRaises(ValueError):
@@ -101,6 +105,87 @@ class RobotWebAppTests(unittest.TestCase):
 
         self.assertEqual(result["action"], "report_location")
         self.assertEqual(result["response"], "I am on my way to the kitchen.")
+
+    def test_emergency_stop_latch_survives_polls_and_scenario_changes(self) -> None:
+        self.app.engage_emergency_stop()
+
+        for _ in range(3):
+            self.assertEqual(self.app.status()["safety_state"], "stop")
+
+        # Picking a clear-path scenario must not release an engaged stop.
+        self.app.set_safety_scenario("clear")
+
+        self.assertEqual(self.app.status()["safety_state"], "stop")
+        self.assertTrue(self.app.status()["safety"]["emergency_stop"])
+
+    def test_only_an_explicit_reset_releases_the_stop(self) -> None:
+        self.app.engage_emergency_stop()
+
+        status = self.app.reset_emergency_stop()
+
+        self.assertEqual(status["safety_state"], "clear")
+        self.assertFalse(status["safety"]["emergency_stop"])
+
+    def test_emergency_stop_abandons_the_active_trip(self) -> None:
+        self.app.send_goal("kitchen")
+
+        status = self.app.engage_emergency_stop()
+
+        self.assertEqual(status["goal"]["state"], "cancelled")
+
+    def test_no_goal_can_be_sent_while_stopped(self) -> None:
+        self.app.engage_emergency_stop()
+
+        with self.assertRaises(RuntimeError):
+            self.app.send_goal("kitchen")
+
+    def test_voice_cannot_move_the_robot_while_stopped(self) -> None:
+        self.app.engage_emergency_stop()
+
+        result = self.app.handle_voice_command("go to the kitchen")
+
+        self.assertEqual(result["action"], "refused")
+        self.assertNotIn("goal_id", result)
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_saves_and_removes_named_locations(self) -> None:
+        result = self.app.save_location(" Front Door ", 3.0, -1.0, 1.57)
+
+        self.assertIn(
+            {"name": "front door", "x": 3.0, "y": -1.0, "yaw": 1.57},
+            result["locations"],
+        )
+
+        remaining = self.app.remove_location("front door")
+
+        self.assertEqual([entry["name"] for entry in remaining["locations"]], ["kitchen"])
+
+    def test_saved_locations_become_voice_destinations(self) -> None:
+        self.app.save_location("front door", 3.0, -1.0)
+
+        result = self.app.handle_voice_command("go to the front door")
+
+        self.assertEqual(result["action"], "go_to")
+        self.assertEqual(result["location_name"], "front door")
+
+    def test_rejects_an_unnamed_or_unknown_location(self) -> None:
+        with self.assertRaises(ValueError):
+            self.app.save_location("   ", 1.0, 1.0)
+
+        with self.assertRaises(KeyError):
+            self.app.remove_location("garage")
+
+    def test_stale_command_scenario_stops_robot(self) -> None:
+        safety = self.app.set_safety_scenario("stale_command")
+
+        self.assertEqual(safety["state"], "stop")
+        self.assertEqual(safety["reason"], "motion command timed out")
+
+
+    def test_scenarios_no_longer_include_the_emergency_stop(self) -> None:
+        # The stop is a latched control, not a sensor condition. Leaving it in
+        # the scenario list would let a scenario click release an engaged stop.
+        self.assertNotIn("emergency_stop", SafetyScenarioAdapter.SCENARIOS)
 
 
 if __name__ == "__main__":
