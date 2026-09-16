@@ -101,7 +101,7 @@ robot/
 		robot_voice/              # speech-to-intent adapter and destination gating
 		robot_locations/          # named poses and map metadata
 		robot_interfaces/         # shared messages and service definitions
-	simulation/                 # simulator world and test scenarios
+	simulation/                 # realized as robot_bringup/worlds so colcon installs it
 	web_ui/                     # map and operator controls
 	hardware/                   # wiring, bills of materials, CAD references
 	docs/                       # decisions, hazards, test procedures
@@ -123,7 +123,7 @@ The stair mechanism should be selected only after the team has documented stair 
 
 ## Safety invariants
 
-- Loss of command, sensor timeout, localization failure, or low battery causes a controlled stop.
+- Loss of command, sensor timeout, localization failure, or low battery causes a controlled stop. All four are implemented in `robot_safety`; the last two are enabled by configuration once the robot has a pose and a battery to report.
 - Emergency stop is physical, latched, and independent of the network and AI services.
 - Voice and vision may request goals, but never bypass the safety controller or directly set motor power.
 - Human detection reduces speed and increases stopping distance; it does not guarantee safe operation by itself.
@@ -139,7 +139,7 @@ Suggested first issues:
 2. Write the hazard analysis and emergency-stop test procedure.
 3. ~~Implement the mock obstacle-stop controller with unit tests.~~ **Completed:** the first hardware-independent safety slice is in `robot/ros2_ws/src/robot_safety`.
 4. Select the flat-floor base, sensors, compute board, and power system.
-5. ~~Create the ROS 2 workspace and a minimal simulated house.~~ **Partially completed:** hardware-independent navigation, locations, voice, and planner packages are in `robot/ros2_ws/src`; the ROS 2 wrapper and simulator world still require the selected ROS 2 distribution and simulator.
+5. ~~Create the ROS 2 workspace and a minimal simulated house.~~ **Completed:** `robot_description` holds a differential-drive URDF with a 2D lidar and IMU, `robot_bringup` holds the `test_room` Gazebo Harmonic world and the launch files that start the simulator, the topic bridge, and the safety gate. The URDF dimensions are placeholders pending the hardware choice.
 6. ~~Add CI that runs formatting, unit tests, and package builds.~~ **Partially completed:** GitHub Actions now runs the Python unit tests and compilation checks; ROS 2 package builds will be added after the ROS 2 baseline is selected.
 
 ### Current implementation
@@ -148,9 +148,11 @@ The first safety controller is implemented without a ROS 2 dependency so it can 
 
 - `clear`: full speed allowed when the path is outside the caution distance.
 - `caution`: speed limited to 35% when an obstacle is nearby.
-- `stop`: zero speed for a close obstacle, emergency stop, or invalid sensor data.
+- `stop`: zero speed for a close obstacle, a latched emergency stop, invalid or stale sensor data, or a stale motion command.
 
-Run its six unit tests with:
+The emergency stop latches: once engaged it holds until a deliberate reset, so a clear sensor reading or a restarting publisher cannot release it. A command stream that goes silent is treated as a stop condition rather than a reason to keep the last requested velocity.
+
+Run its unit tests with:
 
 ```bash
 PYTHONPATH=robot/ros2_ws/src/robot_safety python3 -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
@@ -158,13 +160,61 @@ PYTHONPATH=robot/ros2_ws/src/robot_safety python3 -m unittest discover -s robot/
 
 The physical test procedure is documented in [docs/safety-test-procedure.md](docs/safety-test-procedure.md). The next implementation slice is to wrap this controller in a ROS 2 package after the team selects the ROS 2 distribution and robot base.
 
+### Simulation
+
+`ros2 launch robot_bringup simulation.launch.py` starts Gazebo Harmonic with a
+6x5 m test room, spawns the robot, bridges sensors and commands, and runs the
+safety gate. Teleop drives it through `/cmd_vel_requested`:
+
+```text
+teleop / Nav2  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel  ->  Gazebo DiffDrive
+```
+
+Only `robot_safety` publishes `/cmd_vel`, and only `/cmd_vel` is bridged into
+the simulator, so there is no path from a motion source to the wheels that
+skips the gate. The room contains a table and a cabinet to stop for.
+
+This is the first slice where the safety controller runs as a live node rather
+than as unit-tested logic.
+
+SLAM Toolbox, AMCL, and Nav2 are now configured and launchable
+(`slam.launch.py`, `navigation.launch.py`), with Nav2 wired as a motion
+source behind the gate rather than as a motion authority. That configuration
+is checked for internal consistency by the test suite but has not been run
+against the simulator yet, because CI here has no Gazebo. The first run is
+bring-up work, not a regression test.
+
+The URDF describes a plausible indoor base, not a robot anyone owns. Its
+dimensions are placeholders, and Nav2 footprints, inflation radii, and the
+safety distances all derive from them, so they must be replaced with measured
+values before they mean anything.
+
+### Derived safety numbers
+
+The safety distances and the Nav2 costmap geometry are computed from the base,
+not typed in. `robot_safety/distances.py` turns the speed, braking, sensor
+rate, control rate, and sensor overhang in `robot_bringup/config/base_dynamics.yaml`
+into `stop_distance` and `caution_distance`; `robot_navigation/footprint.py`
+turns the URDF's `base_length` and `base_width` into the costmap footprint and
+inflation radius.
+
+The tests recompute both and fail if the shipped configuration disagrees. That
+is the mechanism that stops a margin from quietly surviving a change of base,
+sensor, or speed limit: raising Nav2's top speed without re-deriving the stop
+distance is a build failure rather than a robot that outruns its own margin.
+
+Every input is still an assumption (`measured: false`) matched to the
+placeholder URDF.
+
 ### Additional completed software foundations
 
 - `robot_core` defines validated `Pose2D` and `NavigationGoal` data contracts.
 - `robot_locations` persists operator-approved named poses as JSON and rejects unknown destinations.
 - `robot_voice` parses only a small allow-listed command set and returns `unknown` for ambiguous commands. Its `CommandGateway` then resolves each parsed intent against the approved locations, so an unrecognised destination becomes a spoken refusal rather than a goal, and a stop word anywhere in the transcript wins over everything else.
 - `robot_navigation` provides a deterministic grid planner for simulator and integration tests, including obstacle detours, replanning, and no-path errors.
-- `.github/workflows/tests.yml` runs all unit tests and Python compilation on pushes and pull requests.
+- `robot_description` and `robot_bringup` provide the simulated robot, the test world, and the launch wiring, with tests that assert the safety topology rather than only the geometry.
+- `robot_safety` additionally treats localization failure and a flat battery as stop conditions, off until the robot has those inputs to lose.
+- `.github/workflows/tests.yml` lints, runs all unit tests, compiles the Python, and builds the ROS packages on Jazzy, on pushes and pull requests.
 
 These modules are deliberately independent of ROS 2 so the behavior can be tested in this repository. They are not a replacement for SLAM Toolbox, AMCL, Nav2, Collision Monitor, a speech-to-text engine, or physical safety hardware.
 
@@ -174,6 +224,6 @@ In simulation and in a controlled flat-floor test, a robot stops before a config
 
 ## Development baseline and quick start
 
-The first implementation targets **Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic**. The repository now contains five installable ROS 2 Python packages and a fail-closed `robot_safety` command gate.
+The first implementation targets **Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic**. The repository now contains seven installable ROS 2 Python packages and a fail-closed `robot_safety` command gate.
 
 Start with [the build and run guide](docs/getting-started.md). The rationale and safety consequences are recorded in [ADR 0001](docs/decisions/0001-ros-baseline.md).

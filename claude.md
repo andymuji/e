@@ -12,18 +12,30 @@ ROS 2-based assistive robot for elder care. See [docs/decisions/0001-ros-baselin
 
 ## Packages
 
+- `robot_bringup` - launch files, parameters, simulation worlds
 - `robot_core`
+- `robot_description` - URDF/xacro, RViz config
 - `robot_locations`
 - `robot_navigation`
 - `robot_safety`
 - `robot_voice`
 
+The URDF dimensions are placeholders. Nav2 footprints, inflation radii, and the
+`robot_safety` distances all derive from them, so they must be replaced with
+measured values before any hardware test.
+
 ## Safety Rules
 
 - Every requested motion command must pass through `robot_safety` before reaching the hardware controller.
 - The software emergency stop is secondary; the physical robot requires an independently wired emergency stop.
+- The software emergency stop is latched. Only an explicit reset on `emergency_stop_reset` releases it; a `false` on `emergency_stop` must never do so.
+- Loss of the command stream is a stop condition, not a reason to hold the last velocity. Both `sensor_timeout` and `command_timeout` fail closed.
 - Do not run hardware tests without the documented tether, exclusion zone, and second operator.
 - Do not connect another node directly to the motor controller's velocity input.
+- Motion path: `/cmd_vel_requested` -> `robot_safety` -> `/cmd_vel` -> driver or Gazebo DiffDrive. Nothing else publishes `/cmd_vel`.
+- Nav2 is a motion source, not a motion authority. Every Nav2 node that can emit a velocity has `cmd_vel` remapped to `cmd_vel_requested`, including `behavior_server`: its recovery behaviours drive the robot, and they run when something has already gone wrong.
+- The safety gate is never put under lifecycle management. The lifecycle manager deactivates its nodes on failure, and the gate has to still be running then.
+- `stop_distance` and `caution_distance` are derived from `robot_bringup/config/base_dynamics.yaml`, and the Nav2 footprint and inflation radius from the URDF dimensions. Do not hand-edit them; change the inputs. The tests recompute both and fail on drift.
 
 ## Development Checks
 
@@ -31,15 +43,20 @@ From the repository root:
 
 ```bash
 # Run the full Python test suite.
+PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_bringup/tests -v
 PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_core/tests -v
+PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_description/tests -v
 PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_locations/tests -v
 PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_navigation/tests -v
 PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
 PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_voice/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_safety python3 -m unittest discover -s web_ui/tests -v
+PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s web_ui/tests -v
 
 # Compile Python sources.
 python3 -m compileall -q robot/ros2_ws/src web_ui
+
+# Lint.
+ruff check robot/ros2_ws/src web_ui
 ```
 
 For ROS package work, source Jazzy first and build from `robot/ros2_ws`:
@@ -49,4 +66,11 @@ source /opt/ros/jazzy/setup.bash
 cd robot/ros2_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install
+source install/setup.bash
 ```
+
+Run the simulation with `ros2 launch robot_bringup simulation.launch.py`, and
+drive it from a second terminal with `ros2 launch robot_bringup teleop.launch.py`.
+Map with `slam.launch.py`, then navigate a saved map with
+`navigation.launch.py map:=...`. The SLAM and Nav2 configuration has not been
+run against the simulator yet; treat the first run as bring-up.
