@@ -1,0 +1,32 @@
+# Lint settings for the Python in this repository.
+#
+# The line length matches the existing code rather than ruff's default, so
+# adopting this tool does not turn into a reformat of every file.
+line-length = 90
+target-version = "py312"
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "W",    # warnings
+    "I",    # import ordering
+    "UP",   # outdated syntax
+    "B",    # likely bugs
+    "C4",   # comprehensions
+]
+ignore = [
+    "B008",   # Function call in argument default: the launch API relies on it.
+    "UP042",  # SafetyState subclasses str deliberately: its .value is
+              # published on a ROS topic, and StrEnum would change how the
+              # member itself serialises.
+]
+
+[lint.per-file-ignores]
+# Tests reach into node internals deliberately; see the comments there.
+"*/tests/*" = ["E501"]
+
+[lint.isort]
+# Matches the existing files: `import x` and `from x import y` sorted
+# together by module name, rather than in separate blocks.
+force-sort-within-sections = true

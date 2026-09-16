@@ -4,7 +4,22 @@ on:
   push:
   pull_request:
 
+env:
+  PYTHONPATH: robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install lint dependencies
+        run: pip install ruff
+      - name: Lint
+        run: ruff check robot/ros2_ws/src web_ui
+
   unit-tests:
     runs-on: ubuntu-latest
     steps:
@@ -12,20 +27,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install test dependencies
+        run: pip install pyyaml
       - name: Run unit tests
         run: |
-          PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice \
-            python -m unittest discover -s robot/ros2_ws/src/robot_core/tests -v
-          PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice \
-            python -m unittest discover -s robot/ros2_ws/src/robot_locations/tests -v
-          PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice \
-            python -m unittest discover -s robot/ros2_ws/src/robot_navigation/tests -v
-          PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice \
-            python -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
-          PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice \
-            python -m unittest discover -s robot/ros2_ws/src/robot_voice/tests -v
+          for suite in \
+            robot/ros2_ws/src/robot_bringup/tests \
+            robot/ros2_ws/src/robot_core/tests \
+            robot/ros2_ws/src/robot_description/tests \
+            robot/ros2_ws/src/robot_locations/tests \
+            robot/ros2_ws/src/robot_navigation/tests \
+            robot/ros2_ws/src/robot_safety/tests \
+            robot/ros2_ws/src/robot_voice/tests \
+            web_ui/tests; do
+            python -m unittest discover -s "$suite" -v || exit 1
+          done
       - name: Compile Python packages
-        run: python -m compileall -q robot/ros2_ws/src
+        run: python -m compileall -q robot/ros2_ws/src web_ui
 
   ros-build:
     runs-on: ubuntu-latest
@@ -35,6 +53,13 @@ jobs:
           required-ros-distributions: jazzy
       - uses: ros-tooling/action-ros-ci@v0.4
         with:
-          package-name: robot_core robot_locations robot_navigation robot_safety robot_voice
+          package-name: >-
+            robot_bringup
+            robot_core
+            robot_description
+            robot_locations
+            robot_navigation
+            robot_safety
+            robot_voice
           target-ros2-distro: jazzy
           import-token: ${{ secrets.GITHUB_TOKEN }}

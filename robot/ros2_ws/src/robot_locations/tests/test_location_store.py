@@ -1,6 +1,6 @@
+from pathlib import Path
 import tempfile
 import unittest
-from pathlib import Path
 
 from robot_core import Pose2D
 from robot_locations import LocationStore

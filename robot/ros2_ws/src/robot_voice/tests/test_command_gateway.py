@@ -4,7 +4,6 @@ import unittest
 
 from robot_core import Pose2D
 from robot_locations import LocationStore
-
 from robot_voice import CommandGateway
 
 
