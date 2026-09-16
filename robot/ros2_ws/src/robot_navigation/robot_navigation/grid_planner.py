@@ -1,5 +1,5 @@
+from collections.abc import Iterable
 from heapq import heappop, heappush
-from typing import Iterable
 
 Cell = tuple[int, int]
 
@@ -68,7 +68,9 @@ class GridPlanner:
         return abs(first[0] - second[0]) + abs(first[1] - second[1])
 
     @staticmethod
-    def _reconstruct_path(came_from: dict[Cell, Cell | None], current: Cell) -> list[Cell]:
+    def _reconstruct_path(
+        came_from: dict[Cell, Cell | None], current: Cell
+    ) -> list[Cell]:
         path = [current]
         parent = came_from[current]
         while parent is not None:
