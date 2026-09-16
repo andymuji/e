@@ -1,0 +1,36 @@
+# Safety gate parameters for autonomous navigation.
+#
+# Same derived distances as safety.yaml, with the checks that only make sense
+# once Nav2 is driving. Under teleop a human is watching and a lost pose is
+# harmless; under Nav2 the pose IS the thing choosing where to drive, so a
+# robot that has lost it will drive confidently into the wrong room.
+#
+# The distances below are DERIVED from base_dynamics.yaml. Do not edit them
+# here: BringupSafetyDistanceTests checks both files against the derivation.
+safety_controller:
+  ros__parameters:
+    use_sim_time: true
+
+    stop_distance: 0.45
+    caution_distance: 0.85
+
+    sensor_timeout: 0.5
+    command_timeout: 0.5
+    control_rate_hz: 20.0
+
+    # Nav2's AMCL publishes amcl_pose at roughly the laser rate. A second
+    # without a pose while the robot is driving itself is already too long.
+    require_localization: true
+    localization_timeout: 1.0
+
+    # Largest position variance, m^2, that still counts as localized. AMCL
+    # keeps publishing after it diverges, so freshness alone proves nothing.
+    # 0.25 m^2 is one standard deviation of 0.5 m, which is already wider
+    # than the robot. Re-derive with the measured base.
+    max_localization_covariance: 0.25
+
+    # The simulated base has no battery to report. Set this to the measured
+    # reserve once there is a driver publishing battery_state, and give the
+    # layer above the gate a higher threshold so it can break off a trip and
+    # drive to the charger while there is still charge to do it with.
+    low_battery_fraction: -1.0

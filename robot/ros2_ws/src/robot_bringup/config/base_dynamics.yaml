@@ -1,0 +1,46 @@
+# Inputs the robot_safety distances are derived from.
+#
+# This file is NOT a ROS parameter file. It is the single source of truth for
+# the numbers behind `safety.yaml`: `robot_safety.distances` turns these into
+# stop_distance and caution_distance, and a test fails if safety.yaml drifts
+# away from what they imply. Change the distances by changing these inputs.
+#
+# measured: false means every value below is a plausible assumption matched to
+# the placeholder URDF, not a measurement. Before any hardware test, measure
+# the real base, set measured: true, and re-run docs/safety-test-procedure.md.
+measured: false
+
+# Speed cap in robot.gazebo.xacro (max_linear_velocity), m/s.
+max_speed: 0.5
+
+# Deceleration the base can actually achieve, m/s^2. Matched to the
+# DiffDrive plugin's acceleration limit. On hardware this is a measurement
+# taken on the worst floor surface the robot will drive on, with payload.
+max_deceleration: 1.0
+
+# Worst-case age of a scan when the gate acts on it, s. The lidar in
+# robot.gazebo.xacro runs at 10 Hz.
+sensor_period: 0.1
+
+# Gap between gate evaluations, s. Must match control_rate_hz in safety.yaml.
+control_period: 0.05
+
+# Command-to-torque lag through the driver and motor controller, s. Assumed;
+# on hardware this is measured from a command timestamp to wheel motion.
+actuation_lag: 0.1
+
+# How far the chassis reaches ahead of the lidar, m. From the URDF: the base
+# front edge is at base_length / 2 = 0.20 and the lidar sits at 0.15, so the
+# robot's nose is 0.05 m closer to the obstacle than the reading suggests.
+sensor_to_front_edge: 0.05
+
+# Speed cap inside the caution zone, as a fraction of max_speed. Must match
+# the scale SafetyController applies in its caution decision.
+caution_speed_scale: 0.35
+
+# Covers what the model above leaves out: sensor noise, slope, wheel slip,
+# payload shift, and a worn drivetrain.
+safety_factor: 1.5
+
+# Published distances are rounded up onto this grid, m.
+distance_step: 0.05

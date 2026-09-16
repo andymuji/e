@@ -1,0 +1,198 @@
+# Nav2 parameters for the placeholder base.
+#
+# SAFETY: Nav2 is a motion source, not a motion authority. Every node here
+# that can emit a velocity has its cmd_vel remapped to cmd_vel_requested in
+# navigation.launch.py, so its output is a request that robot_safety decides
+# on. That includes behavior_server: the recovery behaviours (back up, spin)
+# drive the robot too, and they run at exactly the moments something has
+# already gone wrong. A missed remap there is a path around the gate.
+#
+# The footprint and inflation_radius are DERIVED from the URDF dimensions via
+# robot_navigation.footprint. The velocity limits are DERIVED from
+# base_dynamics.yaml. BringupNav2GeometryTests fails if either drifts.
+
+amcl:
+  ros__parameters:
+    use_sim_time: true
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+    global_frame_id: "map"
+    scan_topic: "scan"
+    # The gate treats a pose older than 1.0 s as lost, so AMCL has to be
+    # comfortably faster than that even when the robot is barely moving.
+    update_min_a: 0.2
+    update_min_d: 0.25
+    laser_model_type: "likelihood_field"
+    laser_max_range: 12.0
+    laser_min_range: 0.08
+    max_particles: 2000
+    min_particles: 500
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    tf_broadcast: true
+    transform_tolerance: 1.0
+
+map_server:
+  ros__parameters:
+    use_sim_time: true
+    yaml_filename: ""
+
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    expected_planner_frequency: 5.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.25
+      use_astar: true
+      allow_unknown: false
+
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 10.0
+    # Anything slower than this counts as not moving, which is what the
+    # progress checker uses to decide the robot is stuck.
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.2
+      yaw_goal_tolerance: 0.3
+      stateful: true
+
+    FollowPath:
+      plugin: "dwb_core::DWBLocalPlanner"
+      # DERIVED from base_dynamics.yaml max_speed. Raising this without
+      # re-deriving the safety distances lets the robot outrun its own
+      # stop distance.
+      max_vel_x: 0.5
+      min_vel_x: 0.0
+      max_vel_theta: 1.0
+      min_speed_xy: 0.0
+      max_speed_xy: 0.5
+      # DERIVED from base_dynamics.yaml max_deceleration.
+      acc_lim_x: 1.0
+      decel_lim_x: -1.0
+      acc_lim_theta: 2.0
+      decel_lim_theta: -2.0
+      vx_samples: 20
+      vtheta_samples: 20
+      sim_time: 1.5
+      critics:
+        - "RotateToGoal"
+        - "Oscillation"
+        - "BaseObstacle"
+        - "GoalAlign"
+        - "PathAlign"
+        - "PathDist"
+        - "GoalDist"
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: true
+      global_frame: "odom"
+      robot_base_frame: "base_footprint"
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      rolling_window: true
+      width: 4
+      height: 4
+      resolution: 0.05
+      # DERIVED from the URDF: base_length x base_width.
+      footprint: "[[0.2, 0.15], [0.2, -0.15], [-0.2, -0.15], [-0.2, 0.15]]"
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 12.0
+          obstacle_max_range: 8.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # DERIVED: circumscribed radius + clearance margin. Below the
+        # circumscribed radius the planner produces paths the robot cannot
+        # even turn around on.
+        inflation_radius: 0.5
+        cost_scaling_factor: 3.0
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: true
+      global_frame: "map"
+      robot_base_frame: "base_footprint"
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      resolution: 0.05
+      track_unknown_space: true
+      footprint: "[[0.2, 0.15], [0.2, -0.15], [-0.2, -0.15], [-0.2, 0.15]]"
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          raytrace_max_range: 12.0
+          obstacle_max_range: 8.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.5
+        cost_scaling_factor: 3.0
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: true
+    local_frame: "odom"
+    global_frame: "map"
+    robot_base_frame: "base_footprint"
+    behavior_plugins: ["spin", "backup", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    # These drive the robot, so they obey the same limits as the controller.
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    rotational_acc_lim: 2.0
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: "map"
+    robot_base_frame: "base_footprint"
+    odom_topic: "/odom"
+    bt_loop_duration: 10
+    default_server_timeout: 20
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: true
+    loop_rate: 20
+    stop_on_failure: true
