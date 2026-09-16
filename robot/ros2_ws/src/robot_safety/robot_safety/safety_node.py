@@ -1,16 +1,20 @@
 """ROS 2 node that gates requested velocity commands through safety checks."""
 
 import math
-import time
 
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import BatteryState, LaserScan
 from std_msgs.msg import Bool, String
 
 from robot_safety.safety_controller import SafetyController
+
+
+def _optional(value: float) -> float | None:
+    """Turn the negative sentinel used by the parameters into a disabled check."""
+    return None if value < 0.0 else value
 
 
 class SafetyNode(Node):
@@ -19,27 +23,53 @@ class SafetyNode(Node):
     def __init__(self) -> None:
         super().__init__("safety_controller")
 
-        self.declare_parameter("stop_distance", 0.35)
-        self.declare_parameter("caution_distance", 0.8)
+        self.declare_parameter("stop_distance", 0.45)
+        self.declare_parameter("caution_distance", 0.85)
         self.declare_parameter("sensor_timeout", 0.5)
+        self.declare_parameter("command_timeout", 0.5)
         self.declare_parameter("control_rate_hz", 20.0)
+        self.declare_parameter("require_localization", False)
+        self.declare_parameter("localization_timeout", 1.0)
+        # A negative limit means the check is off: ROS parameters have no
+        # null, and 0.0 is a meaningful (impossible to satisfy) value.
+        self.declare_parameter("max_localization_covariance", -1.0)
+        self.declare_parameter("low_battery_fraction", -1.0)
 
         stop_distance = float(self.get_parameter("stop_distance").value)
         caution_distance = float(self.get_parameter("caution_distance").value)
         sensor_timeout = float(self.get_parameter("sensor_timeout").value)
+        command_timeout = float(self.get_parameter("command_timeout").value)
         control_rate_hz = float(self.get_parameter("control_rate_hz").value)
         if not math.isfinite(control_rate_hz) or control_rate_hz <= 0.0:
             raise ValueError("control_rate_hz must be finite and greater than zero")
+
+        require_localization = bool(self.get_parameter("require_localization").value)
+        localization_timeout = float(self.get_parameter("localization_timeout").value)
+        max_covariance = _optional(
+            float(self.get_parameter("max_localization_covariance").value)
+        )
+        low_battery_fraction = _optional(
+            float(self.get_parameter("low_battery_fraction").value)
+        )
 
         self._controller = SafetyController(
             stop_distance=stop_distance,
             caution_distance=caution_distance,
             sensor_timeout=sensor_timeout,
+            command_timeout=command_timeout,
+            require_localization=require_localization,
+            localization_timeout=localization_timeout,
+            max_localization_covariance=max_covariance,
+            low_battery_fraction=low_battery_fraction,
         )
         self._requested_velocity = Twist()
         self._nearest_obstacle = None
         self._last_scan_time = None
-        self._last_state = None
+        self._last_command_time = None
+        self._last_status = None
+        self._last_localization_time = None
+        self._localization_covariance = None
+        self._battery_fraction = None
 
         self._velocity_publisher = self.create_publisher(Twist, "cmd_vel", 10)
         self._state_publisher = self.create_publisher(String, "safety_state", 10)
@@ -48,10 +78,25 @@ class SafetyNode(Node):
             LaserScan, "scan", self._on_scan, qos_profile_sensor_data
         )
         self.create_subscription(Bool, "emergency_stop", self._on_emergency_stop, 10)
+        self.create_subscription(
+            Bool, "emergency_stop_reset", self._on_emergency_stop_reset, 10
+        )
+        # Subscribed to only when the check is on, so an unused topic
+        # cannot be mistaken for a check that is running.
+        if require_localization:
+            self.create_subscription(
+                PoseWithCovarianceStamped, "amcl_pose", self._on_localization, 10
+            )
+        if low_battery_fraction is not None:
+            self.create_subscription(
+                BatteryState, "battery_state", self._on_battery, 10
+            )
+
         self.create_timer(1.0 / control_rate_hz, self._publish_safe_velocity)
 
     def _on_velocity(self, message: Twist) -> None:
         self._requested_velocity = message
+        self._last_command_time = self._now()
 
     def _on_scan(self, message: LaserScan) -> None:
         valid_ranges = [
@@ -61,18 +106,57 @@ class SafetyNode(Node):
             and message.range_min <= distance <= message.range_max
         ]
         self._nearest_obstacle = min(valid_ranges) if valid_ranges else None
-        self._last_scan_time = time.monotonic()
+        self._last_scan_time = self._now()
+
+    def _on_localization(self, message: PoseWithCovarianceStamped) -> None:
+        """Record pose freshness and how sure the localizer is of it.
+
+        The covariance is 6x6 row-major; entries 0 and 7 are the x and y
+        position variances. The larger of the two is the one that decides
+        whether the robot still knows where it is.
+        """
+        covariance = message.pose.covariance
+        self._localization_covariance = max(covariance[0], covariance[7])
+        self._last_localization_time = self._now()
+
+    def _on_battery(self, message: BatteryState) -> None:
+        # A driver that reports NaN is reporting that it does not know, which
+        # the controller treats as a stop rather than as a full battery.
+        self._battery_fraction = message.percentage
 
     def _on_emergency_stop(self, message: Bool) -> None:
-        self._controller.set_emergency_stop(message.data)
+        """Engage the latch. A False here never releases it: see the reset topic."""
+        if message.data:
+            self._controller.engage_emergency_stop()
+
+    def _on_emergency_stop_reset(self, message: Bool) -> None:
+        """Release the latch only on a deliberate reset from the operator."""
+        if message.data:
+            self._controller.clear_emergency_stop()
+            self.get_logger().warning("software emergency stop reset by operator")
+
+    def _now(self) -> float:
+        """Seconds from the node clock, so use_sim_time governs every timeout.
+
+        Wall-clock ages would drift against sim-time data whenever the
+        simulator runs slower than real time, tripping the timeouts on a
+        healthy system. A clock that jumps backwards on a sim reset yields a
+        negative age, which the controller already treats as a stop.
+        """
+        return self.get_clock().now().nanoseconds * 1e-9
+
+    def _age(self, timestamp: float | None) -> float | None:
+        return None if timestamp is None else self._now() - timestamp
 
     def _publish_safe_velocity(self) -> None:
-        reading_age = (
-            time.monotonic() - self._last_scan_time
-            if self._last_scan_time is not None
-            else 0.0
+        decision = self._controller.evaluate(
+            self._nearest_obstacle,
+            self._age(self._last_scan_time),
+            self._age(self._last_command_time),
+            localization_age=self._age(self._last_localization_time),
+            localization_covariance=self._localization_covariance,
+            battery_fraction=self._battery_fraction,
         )
-        decision = self._controller.evaluate(self._nearest_obstacle, reading_age)
 
         safe = Twist()
         safe.linear.x = self._requested_velocity.linear.x * decision.speed_scale
@@ -83,12 +167,17 @@ class SafetyNode(Node):
         safe.angular.z = self._requested_velocity.angular.z * decision.speed_scale
         self._velocity_publisher.publish(safe)
 
-        if decision.state.value != self._last_state:
+        # Drop the stale request so a resumed command stream cannot replay it.
+        if decision.reason == "motion command timed out":
+            self._requested_velocity = Twist()
+
+        status = f"{decision.state.value}: {decision.reason}"
+        if status != self._last_status:
             state = String()
-            state.data = f"{decision.state.value}: {decision.reason}"
+            state.data = status
             self._state_publisher.publish(state)
-            self.get_logger().info(state.data)
-            self._last_state = decision.state.value
+            self.get_logger().info(status)
+            self._last_status = status
 
 
 def main(args=None) -> None:
