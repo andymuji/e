@@ -6,10 +6,12 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 
 SRC=robot/ros2_ws/src
 
-# Source ROS 2 when it is installed, so the rclpy-dependent suites actually run
-# instead of skipping. A Codespace without the devcontainer has no /opt/ros and
-# skips those suites exactly as before.
-if [[ -z ${ROS_DISTRO:-} && -f /opt/ros/jazzy/setup.bash ]]; then
+# Source ROS 2 when it is installed but not actually importable, so the
+# rclpy-dependent suites run instead of skipping. Test the import, not
+# ROS_DISTRO: the devcontainer exports ROS_DISTRO=jazzy without ROS being on
+# the Python path, so that variable says nothing about whether rclpy loads.
+# A Codespace without the devcontainer has no /opt/ros and skips as before.
+if ! python3 -c "import rclpy" >/dev/null 2>&1 && [[ -f /opt/ros/jazzy/setup.bash ]]; then
   set +u
   # shellcheck disable=SC1091
   source /opt/ros/jazzy/setup.bash
@@ -54,6 +56,15 @@ fi
 
 if [[ $what == lint || $what == all ]]; then
   ruff check $SRC web_ui || rc=1
+fi
+
+# Say plainly whether everything selected passed. Without this the last line of
+# a full run is ruff's own "All checks passed!", which reports on lint alone and
+# prints even when a suite above it failed.
+if [[ $rc -eq 0 ]]; then
+  echo "check.sh: PASSED"
+else
+  echo "check.sh: FAILED"
 fi
 
 exit $rc

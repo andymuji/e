@@ -23,8 +23,16 @@ Pass extra `unittest` arguments after the mode: `check.sh tests -v`.
 
 ## Notes
 
-- `robot_safety` skips ~13 tests when `rclpy` is not importable. Skips are not
-  failures, but a run under a sourced ROS 2 Jazzy environment executes them.
+- Read the per-suite lines and the exit status, and the final `check.sh:
+  PASSED`/`check.sh: FAILED` line. Do **not** read `All checks passed!` as the
+  verdict: that line is printed by `ruff`, reports on lint alone, and still
+  appears when a suite above it failed.
+- The `robot_safety` suite needs `rclpy`. The script sources
+  `/opt/ros/jazzy/setup.bash` itself when the import fails and ROS is
+  installed, so those 13 tests run inside the devcontainer without any manual
+  sourcing. `(skipped=13)` means ROS is genuinely absent - a Codespace that was
+  never rebuilt into the container. Skips are not failures, but they mean the
+  tests guarding the motion gate did not run.
 - The `robot_bringup` and `robot_navigation` suites recompute `stop_distance`,
   `caution_distance`, the Nav2 footprint, and the inflation radius from
   `base_dynamics.yaml` and the URDF, and fail on drift. A failure there means an
