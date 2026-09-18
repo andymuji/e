@@ -9,3 +9,6 @@ log/
 
 # Personal Claude Code overrides; .claude/settings.json is shared and committed.
 .claude/settings.local.json
+
+# Per-agent git worktrees created by Claude Code sessions.
+.claude/worktrees/
