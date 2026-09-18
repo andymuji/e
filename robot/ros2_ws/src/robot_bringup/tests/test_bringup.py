@@ -562,5 +562,63 @@ class WorldTests(unittest.TestCase):
         self.assertTrue({"table", "cabinet"} <= models)
 
 
+def safety_gate_nodes(source: str) -> list[ast.Call]:
+    """Every launch_ros node action in `source` that starts the safety gate."""
+    return [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) in LAUNCH_NODE_ACTIONS
+        and any(
+            keyword.arg == "executable"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value == "safety_node"
+            for keyword in node.keywords
+        )
+    ]
+
+
+class SingleSafetyGateTests(unittest.TestCase):
+    """Only one gate may publish /cmd_vel, including across launch files.
+
+    simulation.launch.py and navigation.launch.py are documented as being run
+    together, and each starts a gate. Run at once they both subscribe to
+    /cmd_vel_requested and both publish /cmd_vel, so the simulation gate -
+    which has no localization or battery checks - keeps commanding motion
+    while the navigation gate is trying to stop. Observed on a live run:
+    `ros2 topic info /cmd_vel` reported two publishers, both safety_controller.
+    """
+
+    def setUp(self) -> None:
+        self.simulation = (LAUNCH / "simulation.launch.py").read_text()
+        self.navigation = (LAUNCH / "navigation.launch.py").read_text()
+
+    def test_each_launch_file_starts_at_most_one_gate(self) -> None:
+        self.assertEqual(len(safety_gate_nodes(self.simulation)), 1)
+        self.assertEqual(len(safety_gate_nodes(self.navigation)), 1)
+
+    def test_the_simulation_gate_can_be_turned_off(self) -> None:
+        gate = safety_gate_nodes(self.simulation)[0]
+        conditions = [k for k in gate.keywords if k.arg == "condition"]
+
+        # Unconditional here means the two launch files cannot be run together
+        # without stacking two gates on /cmd_vel.
+        self.assertEqual(
+            len(conditions),
+            1,
+            "the simulation gate must be conditional so navigation.launch.py "
+            "can supply the gate instead",
+        )
+
+    def test_the_simulation_declares_the_argument_that_turns_it_off(self) -> None:
+        self.assertIn('"safety"', self.simulation)
+
+    def test_the_navigation_gate_is_unconditional(self) -> None:
+        gate = safety_gate_nodes(self.navigation)[0]
+
+        # Nav2 is a motion source; it must never run without its gate.
+        self.assertEqual([k for k in gate.keywords if k.arg == "condition"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

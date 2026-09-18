@@ -83,11 +83,22 @@ ros2 run nav2_map_server map_saver_cli -f maps/test_room
 
 ## Navigate to a goal
 
+Start the simulation with its own gate turned off, because this launch brings
+one:
+
 ```bash
+ros2 launch robot_bringup simulation.launch.py safety:=false
 ros2 launch robot_bringup navigation.launch.py map:=/absolute/path/test_room.yaml
 ```
 
-This starts AMCL, Nav2, and the safety gate. Set the initial pose in RViz
+This starts AMCL, Nav2, and the safety gate.
+
+`safety:=false` matters. Both launch files start a gate, and run together they
+both subscribe to `cmd_vel_requested` and both publish `cmd_vel`. The gate this
+launch brings is the strict one - it adds the localization and battery checks -
+so the simulation's gate would go on commanding motion while this one is trying
+to stop. Leave the simulation's gate on when driving by teleop, and off
+whenever Nav2 is coming. Set the initial pose in RViz
 before sending a goal: AMCL has to be told roughly where the robot is.
 
 Nav2 is a motion source, not a motion authority. Both `controller_server` and

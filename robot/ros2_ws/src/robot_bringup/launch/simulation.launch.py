@@ -28,6 +28,7 @@ def generate_launch_description() -> LaunchDescription:
     world = LaunchConfiguration("world")
     use_rviz = LaunchConfiguration("rviz")
     headless = LaunchConfiguration("headless")
+    use_safety = LaunchConfiguration("safety")
 
     robot_description = ParameterValue(
         Command(["xacro ", str(description_share / "urdf" / "robot.urdf.xacro")]),
@@ -42,6 +43,17 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             "rviz", default_value="true", description="Start RViz."
+        ),
+        DeclareLaunchArgument(
+            "safety",
+            default_value="true",
+            description=(
+                "Start the safety gate. Set false when navigation.launch.py "
+                "will start it instead: that launch brings its own gate with "
+                "the localization checks, and two gates both publishing "
+                "/cmd_vel means the laxer one keeps commanding motion while "
+                "the stricter one is trying to stop."
+            ),
         ),
         DeclareLaunchArgument(
             "headless",
@@ -98,10 +110,13 @@ def generate_launch_description() -> LaunchDescription:
         ),
 
         # The gate between anything that wants motion and the wheels.
+        # Conditional because navigation.launch.py starts its own: see the
+        # `safety` argument above.
         Node(
             package="robot_safety",
             executable="safety_node",
             output="screen",
+            condition=IfCondition(use_safety),
             parameters=[str(bringup_share / "config" / "safety.yaml")],
         ),
 
