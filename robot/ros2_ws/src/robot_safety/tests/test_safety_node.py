@@ -1,12 +1,17 @@
 import unittest
 
 try:
-    from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
+    from geometry_msgs.msg import (
+        PoseWithCovarianceStamped,
+        TransformStamped,
+        Twist,
+    )
     import rclpy
     from robot_safety.safety_controller import SafetyController
     from robot_safety.safety_node import SafetyNode
     from sensor_msgs.msg import BatteryState, LaserScan
     from std_msgs.msg import Bool
+    from tf2_msgs.msg import TFMessage
 
     ROS_AVAILABLE = True
 except ImportError:
@@ -153,6 +158,15 @@ class SafetyNodeHealthTests(unittest.TestCase):
         message.pose.covariance = covariance
         return message
 
+    def localizer_heartbeat(self, parent: str = "map", child: str = "odom"):
+        """The map->odom transform AMCL broadcasts while it is localizing."""
+        message = TFMessage()
+        transform = TransformStamped()
+        transform.header.frame_id = parent
+        transform.child_frame_id = child
+        message.transforms = [transform]
+        return message
+
     def test_node_reads_the_worse_of_the_two_position_variances(self) -> None:
         # A pose that is confident in x and lost in y is lost.
         self.node._on_localization(self.localization(0.01, 4.0))
@@ -168,13 +182,59 @@ class SafetyNodeHealthTests(unittest.TestCase):
     def test_fresh_confident_pose_allows_motion(self) -> None:
         self.require_localization(max_localization_covariance=0.25)
         self.node._on_localization(self.localization(0.01, 0.01))
+        self.node._on_tf(self.localizer_heartbeat())
         self.node._publish_safe_velocity()
 
         self.assertAlmostEqual(self.published.messages[-1].linear.x, 1.0)
 
+    def test_a_standing_robot_stays_localized_on_the_transform_alone(self) -> None:
+        """The deadlock this replaced: no amcl_pose while the robot stands.
+
+        AMCL only publishes amcl_pose once the robot has moved past
+        update_min_d/update_min_a, so taking freshness from that topic meant
+        the gate declared localization lost a second after the robot stopped
+        and then held it at zero - and a robot held at zero can never produce
+        the update that would clear the fault. The transform keeps arriving.
+        """
+        self.require_localization(max_localization_covariance=0.25)
+        self.node._on_localization(self.localization(0.01, 0.01))
+        # Whatever pose freshness the covariance message might have carried.
+        self.node._last_localization_time = None
+
+        self.node._on_tf(self.localizer_heartbeat())
+        self.node._publish_safe_velocity()
+
+        self.assertAlmostEqual(self.published.messages[-1].linear.x, 1.0)
+
+    def test_an_unrelated_transform_is_not_a_localization_heartbeat(self) -> None:
+        # odom->base_footprint comes from the wheels and is published whether
+        # or not the robot knows where it is on the map.
+        self.require_localization(max_localization_covariance=0.25)
+        self.node._on_localization(self.localization(0.01, 0.01))
+
+        self.node._on_tf(self.localizer_heartbeat("odom", "base_footprint"))
+        self.node._publish_safe_velocity()
+
+        self.assertIsNone(self.node._last_localization_time)
+        self.assertEqual(self.published.messages[-1].linear.x, 0.0)
+
+    def test_a_stale_transform_still_stops_the_robot(self) -> None:
+        # The heartbeat has to keep arriving; one old one does not stand in
+        # for a localizer that has since died.
+        self.require_localization(
+            localization_timeout=1.0, max_localization_covariance=0.25
+        )
+        self.node._on_localization(self.localization(0.01, 0.01))
+        self.node._on_tf(self.localizer_heartbeat())
+        self.node._last_localization_time = self.node._now() - 5.0
+        self.node._publish_safe_velocity()
+
+        self.assertEqual(self.published.messages[-1].linear.x, 0.0)
+
     def test_diverged_pose_stops_the_robot_while_still_publishing(self) -> None:
         self.require_localization(max_localization_covariance=0.25)
         self.node._on_localization(self.localization(0.01, 1.0))
+        self.node._on_tf(self.localizer_heartbeat())
         self.node._publish_safe_velocity()
 
         self.assertEqual(self.published.messages[-1].linear.x, 0.0)
@@ -182,6 +242,7 @@ class SafetyNodeHealthTests(unittest.TestCase):
     def test_stale_pose_stops_the_robot(self) -> None:
         self.require_localization(localization_timeout=1.0)
         self.node._on_localization(self.localization(0.01, 0.01))
+        self.node._on_tf(self.localizer_heartbeat())
         self.node._last_localization_time = self.node._now() - 5.0
         self.node._publish_safe_velocity()
 

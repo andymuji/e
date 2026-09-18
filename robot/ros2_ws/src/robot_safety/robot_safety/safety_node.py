@@ -8,6 +8,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, LaserScan
 from std_msgs.msg import Bool, String
+from tf2_msgs.msg import TFMessage
 
 from robot_safety.safety_controller import SafetyController
 
@@ -33,6 +34,11 @@ class SafetyNode(Node):
         # A negative limit means the check is off: ROS parameters have no
         # null, and 0.0 is a meaningful (impossible to satisfy) value.
         self.declare_parameter("max_localization_covariance", -1.0)
+        # The frames of the transform AMCL broadcasts. That transform, not the
+        # amcl_pose topic, is what says localization is still alive: see
+        # _on_tf.
+        self.declare_parameter("map_frame", "map")
+        self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("low_battery_fraction", -1.0)
 
         stop_distance = float(self.get_parameter("stop_distance").value)
@@ -45,6 +51,8 @@ class SafetyNode(Node):
 
         require_localization = bool(self.get_parameter("require_localization").value)
         localization_timeout = float(self.get_parameter("localization_timeout").value)
+        self._map_frame = str(self.get_parameter("map_frame").value)
+        self._odom_frame = str(self.get_parameter("odom_frame").value)
         max_covariance = _optional(
             float(self.get_parameter("max_localization_covariance").value)
         )
@@ -87,6 +95,7 @@ class SafetyNode(Node):
             self.create_subscription(
                 PoseWithCovarianceStamped, "amcl_pose", self._on_localization, 10
             )
+            self.create_subscription(TFMessage, "/tf", self._on_tf, 10)
         if low_battery_fraction is not None:
             self.create_subscription(
                 BatteryState, "battery_state", self._on_battery, 10
@@ -109,15 +118,41 @@ class SafetyNode(Node):
         self._last_scan_time = self._now()
 
     def _on_localization(self, message: PoseWithCovarianceStamped) -> None:
-        """Record pose freshness and how sure the localizer is of it.
+        """Record how sure the localizer is of the pose.
 
         The covariance is 6x6 row-major; entries 0 and 7 are the x and y
         position variances. The larger of the two is the one that decides
         whether the robot still knows where it is.
+
+        Freshness deliberately does not come from here. AMCL only publishes
+        this topic after the robot has moved past update_min_d/update_min_a,
+        so a standing robot publishes nothing at all - see _on_tf.
         """
         covariance = message.pose.covariance
         self._localization_covariance = max(covariance[0], covariance[7])
-        self._last_localization_time = self._now()
+
+    def _on_tf(self, message: TFMessage) -> None:
+        """Treat AMCL's map->odom transform as the localization heartbeat.
+
+        The amcl_pose topic is an event, not a heartbeat: AMCL publishes it
+        only when the filter updates, which needs the robot to have moved.
+        Taking freshness from it deadlocked the robot - the gate declared
+        localization lost one second after it stopped, held the velocity at
+        zero, and a robot that cannot move can never produce the update that
+        would clear the fault. Measured on a standing robot: one amcl_pose in
+        twenty seconds against seventeen map->odom broadcasts.
+
+        Only AMCL publishes map->odom, so this stays a statement about the
+        localizer rather than about tf traffic in general. It does assume
+        AMCL's tf_broadcast is on, which is what navigation.launch.py runs.
+        """
+        for transform in message.transforms:
+            if (
+                transform.header.frame_id.lstrip("/") == self._map_frame
+                and transform.child_frame_id.lstrip("/") == self._odom_frame
+            ):
+                self._last_localization_time = self._now()
+                return
 
     def _on_battery(self, message: BatteryState) -> None:
         # A driver that reports NaN is reporting that it does not know, which

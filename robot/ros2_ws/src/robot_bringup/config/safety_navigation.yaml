@@ -18,8 +18,12 @@ safety_controller:
     command_timeout: 0.5
     control_rate_hz: 20.0
 
-    # Nav2's AMCL publishes amcl_pose at roughly the laser rate. A second
-    # without a pose while the robot is driving itself is already too long.
+    # Freshness is measured from AMCL's map->odom transform, not from the
+    # amcl_pose topic: AMCL only publishes that topic once the robot has moved
+    # past update_min_d/update_min_a, so a standing robot publishes none at
+    # all. Measured on a standing robot: one amcl_pose in twenty seconds
+    # against seventeen transforms. A second without the transform while the
+    # robot is driving itself is already too long.
     require_localization: true
     localization_timeout: 1.0
 
