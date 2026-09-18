@@ -1,5 +1,6 @@
 """Tests for the costmap geometry derived from the base dimensions."""
 
+import ast
 import math
 import unittest
 
@@ -79,8 +80,6 @@ class BaseFootprintTests(unittest.TestCase):
         self.assertGreater(large.inflation_radius, small.inflation_radius)
 
     def test_costmap_footprint_is_parseable_back_into_the_polygon(self) -> None:
-        import ast
-
         base = footprint()
         parsed = [tuple(corner) for corner in ast.literal_eval(
             base.as_costmap_footprint()
@@ -89,6 +88,69 @@ class BaseFootprintTests(unittest.TestCase):
         for actual, expected in zip(parsed, base.polygon, strict=True):
             self.assertAlmostEqual(actual[0], expected[0], places=6)
             self.assertAlmostEqual(actual[1], expected[1], places=6)
+
+    def test_costmap_footprint_round_trips_measured_dimensions(self) -> None:
+        # The bringup drift check compares this string back against the URDF
+        # to 6 decimal places. Dimensions only round-trip while they stay
+        # round numbers, so this uses the awkward ones a tape measure gives.
+        for length, width in ((0.4123, 0.3087), (0.123456, 0.98765), (1.2344449, 0.7)):
+            with self.subTest(length=length, width=width):
+                base = footprint(length=length, width=width)
+                parsed = [tuple(corner) for corner in ast.literal_eval(
+                    base.as_costmap_footprint()
+                )]
+
+                for actual, expected in zip(parsed, base.polygon, strict=True):
+                    self.assertAlmostEqual(actual[0], expected[0], places=6)
+                    self.assertAlmostEqual(actual[1], expected[1], places=6)
+
+    def test_costmap_footprint_never_reports_a_base_smaller_than_it_is(self) -> None:
+        # Rounding that shrinks the footprint is the dangerous direction: the
+        # planner then believes the robot fits through gaps it does not.
+        for length, width in ((0.4, 0.3), (0.4123, 0.3087), (0.123456, 0.98765)):
+            with self.subTest(length=length, width=width):
+                base = footprint(length=length, width=width)
+                corners = [
+                    tuple(corner)
+                    for corner in ast.literal_eval(base.as_costmap_footprint())
+                ]
+
+                self.assertGreaterEqual(max(x for x, _ in corners), length / 2.0)
+                self.assertGreaterEqual(max(y for _, y in corners), width / 2.0)
+
+    def test_polygon_corner_order_is_the_one_nav2_yaml_restates(self) -> None:
+        # Nav2's footprint string lists these corners in this order and the
+        # bringup test compares them one by one. Reordering here silently
+        # breaks that pairing, so the order is pinned.
+        self.assertEqual(
+            footprint().polygon,
+            [(0.2, 0.15), (0.2, -0.15), (-0.2, -0.15), (-0.2, 0.15)],
+        )
+
+    def test_polygon_winds_clockwise_as_documented(self) -> None:
+        corners = footprint().polygon
+        shoelace = sum(
+            x1 * y2 - x2 * y1
+            for (x1, y1), (x2, y2) in zip(
+                corners, corners[1:] + corners[:1], strict=True
+            )
+        )
+
+        # Negative in a right-handed x-forward, y-left frame means clockwise.
+        self.assertLess(shoelace, 0.0)
+
+    def test_polygon_area_matches_the_base_dimensions(self) -> None:
+        corners = footprint(length=0.4123, width=0.3087).polygon
+        area = abs(
+            sum(
+                x1 * y2 - x2 * y1
+                for (x1, y1), (x2, y2) in zip(
+                    corners, corners[1:] + corners[:1], strict=True
+                )
+            )
+        ) / 2.0
+
+        self.assertAlmostEqual(area, 0.4123 * 0.3087, places=9)
 
 
 if __name__ == "__main__":

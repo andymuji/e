@@ -3,8 +3,10 @@
 from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import math
 from pathlib import Path
-from threading import Lock
+from threading import Lock, RLock
+import traceback
 from typing import Any, Protocol
 from urllib.parse import urlparse
 import uuid
@@ -13,6 +15,38 @@ from robot_core import Pose2D
 from robot_locations import LocationStore
 from robot_safety import SafetyController
 from robot_voice import CommandGateway
+
+
+class BadRequest(ValueError):
+    """The request itself is unusable, as opposed to refused by the robot.
+
+    A ValueError so that callers using RobotWebApp directly still see the
+    kind of error they saw before, while the HTTP layer can answer 400
+    instead of 409: a malformed field is not a conflict with robot state,
+    and telling an operator "conflict" for a typo sends them looking at the
+    robot instead of at the form.
+    """
+
+
+def _text_field(value: object, field: str) -> str:
+    """Require a string. Anything else used to escape as an AttributeError."""
+    if not isinstance(value, str):
+        raise BadRequest(f"{field} must be text")
+    return value
+
+
+def _number_field(value: object, field: str) -> float:
+    """Require a real, finite number.
+
+    JSON's NaN and Infinity parse happily into floats, and a pose at NaN is
+    a destination the robot can be sent to and never arrive at.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise BadRequest(f"{field} must be a number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise BadRequest(f"{field} must be a finite number")
+    return number
 
 
 @dataclass(frozen=True)
@@ -128,26 +162,45 @@ class RobotWebApp:
         self.dispatcher = dispatcher
         self.safety = safety or SafetyScenarioAdapter()
         self.gateway = gateway or CommandGateway(location_store)
+        # The server is threaded, so two operator requests can reach the
+        # store at once. Reentrant because the mutating calls report the new
+        # list by calling locations() while still holding it.
+        self._store_lock = RLock()
 
     def locations(self) -> dict[str, list[dict[str, Any]]]:
-        return {
-            "locations": [
-                {"name": goal.location_name, "x": goal.pose.x, "y": goal.pose.y,
-                 "yaw": goal.pose.yaw}
-                for goal in map(self.location_store.get_goal, self.location_store.names())
-            ]
-        }
+        with self._store_lock:
+            # names() then get_goal() per name is a read-modify-read: without
+            # the lock a concurrent removal between the two raised KeyError
+            # and the destination list vanished behind a failed request.
+            return {
+                "locations": [
+                    {"name": goal.location_name, "x": goal.pose.x, "y": goal.pose.y,
+                     "yaw": goal.pose.yaw}
+                    for goal in map(
+                        self.location_store.get_goal, self.location_store.names()
+                    )
+                ]
+            }
 
     def save_location(
         self, name: str, x: float, y: float, yaw: float = 0.0
     ) -> dict[str, Any]:
         """Approve a named pose. Saving an existing name overwrites it."""
-        self.location_store.save_location(name, Pose2D(float(x), float(y), float(yaw)))
-        return self.locations()
+        name = _text_field(name, "name")
+        if not name.strip():
+            raise BadRequest("name must not be empty")
+        pose = Pose2D(
+            _number_field(x, "x"), _number_field(y, "y"), _number_field(yaw, "yaw")
+        )
+        with self._store_lock:
+            self.location_store.save_location(name, pose)
+            return self.locations()
 
     def remove_location(self, name: str) -> dict[str, Any]:
-        self.location_store.remove_location(name)
-        return self.locations()
+        name = _text_field(name, "name")
+        with self._store_lock:
+            self.location_store.remove_location(name)
+            return self.locations()
 
     def engage_emergency_stop(self) -> dict[str, Any]:
         """Latch the stop and abandon any trip in progress.
@@ -176,13 +229,23 @@ class RobotWebApp:
         }
 
     def set_safety_scenario(self, scenario: str) -> dict[str, Any]:
+        scenario = _text_field(scenario, "scenario")
+        if scenario not in self.safety.SCENARIOS:
+            raise BadRequest(f"unknown safety scenario: {scenario}")
         self.safety.set_scenario(scenario)
-        return self.safety.status()
+        # The same envelope every other endpoint returns. It used to answer
+        # with the bare safety dict, so a caller that rendered this response
+        # the way it renders /api/status lost the goal and the stop latch.
+        return self.status()
 
     def send_goal(self, location_name: str) -> dict[str, Any]:
-        goal = self.location_store.get_goal(location_name)
+        location_name = _text_field(location_name, "location_name")
+        # Checked before the lookup, so an engaged stop is reported as the
+        # reason for refusing rather than being masked by a bad name.
         self._refuse_while_stopped()
-        goal_id = self.dispatcher.send_goal(goal)
+        with self._store_lock:
+            goal = self.location_store.get_goal(location_name)
+            goal_id = self.dispatcher.send_goal(goal)
         return {"goal_id": goal_id, "location_name": goal.location_name}
 
     def _refuse_while_stopped(self) -> None:
@@ -192,6 +255,13 @@ class RobotWebApp:
             )
 
     def handle_voice_command(self, transcript: str) -> dict[str, Any]:
+        transcript = _text_field(transcript, "transcript")
+        with self._store_lock:
+            # Held across the whole decision so the approved destinations
+            # cannot change between resolving the goal and dispatching it.
+            return self._handle_voice_command(transcript)
+
+    def _handle_voice_command(self, transcript: str) -> dict[str, Any]:
         outcome = self.gateway.handle(transcript)
         result: dict[str, Any] = {"action": outcome.action, "response": outcome.response}
         status = self.dispatcher.status()
@@ -224,52 +294,47 @@ class RobotWebApp:
         return {"message": "Trip cancelled"}
 
 
+@dataclass(frozen=True)
+class _Reply:
+    """One HTTP answer: a JSON payload, or raw bytes for a static file."""
+
+    status: int
+    payload: dict[str, Any] | None = None
+    body: bytes | None = None
+    content_type: str = "application/json"
+
+
 def make_handler(app: RobotWebApp, web_root: Path):
+    # A body larger than this is not a request this console has any use for,
+    # and reading an arbitrary Content-Length ties up a server thread.
+    max_body_bytes = 64 * 1024
+
+    static_files = {
+        "/": ("index.html", "text/html; charset=utf-8"),
+        "/index.html": ("index.html", "text/html; charset=utf-8"),
+        "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+        "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    }
+
     class RobotRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            path = urlparse(self.path).path
-            if path == "/api/locations":
-                self._send_json(200, app.locations())
-            elif path == "/api/status":
-                self._send_json(200, app.status())
-            elif path == "/" or path == "/index.html":
-                self._send_file(web_root / "index.html", "text/html; charset=utf-8")
-            elif path == "/styles.css":
-                self._send_file(web_root / "styles.css", "text/css; charset=utf-8")
-            elif path == "/app.js":
-                self._send_file(web_root / "app.js", "text/javascript; charset=utf-8")
-            else:
-                self._send_json(404, {"error": "not found"})
+            self._respond(self._route_get)
 
         def do_POST(self) -> None:
+            self._respond(self._route_post)
+
+        def _respond(self, route) -> None:
+            """Answer exactly once, whatever the route does.
+
+            Every branch below ends in a response. An exception that escaped
+            instead used to drop the connection unanswered, and an
+            unanswered poll leaves the console showing its last state - the
+            stop latch included - with nothing to say it is out of date.
+            """
             try:
-                path = urlparse(self.path).path
-                if path == "/api/goals":
-                    body = json.loads(self._read_body())
-                    result = app.send_goal(body["location_name"])
-                    self._send_json(201, result)
-                elif path == "/api/goals/cancel":
-                    self._send_json(200, app.cancel_goal())
-                elif path == "/api/voice":
-                    body = json.loads(self._read_body())
-                    self._send_json(200, app.handle_voice_command(body["transcript"]))
-                elif path == "/api/safety/scenario":
-                    body = json.loads(self._read_body())
-                    self._send_json(200, app.set_safety_scenario(body["scenario"]))
-                elif path == "/api/emergency_stop":
-                    self._send_json(200, app.engage_emergency_stop())
-                elif path == "/api/emergency_stop/reset":
-                    self._send_json(200, app.reset_emergency_stop())
-                elif path == "/api/locations":
-                    body = json.loads(self._read_body())
-                    self._send_json(201, app.save_location(
-                        body["name"], body["x"], body["y"], body.get("yaw", 0.0)
-                    ))
-                elif path == "/api/locations/remove":
-                    body = json.loads(self._read_body())
-                    self._send_json(200, app.remove_location(body["name"]))
-                else:
-                    self._send_json(404, {"error": "not found"})
+                reply = route(urlparse(self.path).path)
+            except BadRequest as error:
+                reply = _Reply(400, {"error": str(error)})
             except KeyError as error:
                 # str(KeyError) quotes its argument, which reads badly in the
                 # UI. A store lookup carries a sentence; a missing body field
@@ -277,34 +342,109 @@ def make_handler(app: RobotWebApp, web_root: Path):
                 message = str(error.args[0]) if error.args else "missing field"
                 if " " not in message:
                     message = f"missing required field: {message}"
-                self._send_json(400, {"error": message})
+                reply = _Reply(400, {"error": message})
             except (TypeError, json.JSONDecodeError) as error:
-                self._send_json(400, {"error": str(error)})
+                reply = _Reply(400, {"error": str(error)})
             except (ValueError, RuntimeError) as error:
-                self._send_json(409, {"error": str(error)})
+                reply = _Reply(409, {"error": str(error)})
+            except Exception:
+                # Last resort. The traceback goes to the console's own output
+                # rather than to the operator, who gets an answer either way.
+                traceback.print_exc()
+                reply = _Reply(500, {"error": "the robot hit an internal error"})
+
+            self._send(reply)
+
+        def _route_get(self, path: str) -> "_Reply":
+            if path == "/api/locations":
+                return _Reply(200, app.locations())
+            if path == "/api/status":
+                return _Reply(200, app.status())
+            static = static_files.get(path)
+            if static is not None:
+                name, content_type = static
+                try:
+                    content = (web_root / name).read_bytes()
+                except OSError:
+                    return _Reply(404, {"error": "not found"})
+                return _Reply(200, None, content, content_type)
+            return _Reply(404, {"error": "not found"})
+
+        def _route_post(self, path: str) -> "_Reply":
+            if path == "/api/goals/cancel":
+                return _Reply(200, app.cancel_goal())
+            if path == "/api/emergency_stop":
+                return _Reply(200, app.engage_emergency_stop())
+            if path == "/api/emergency_stop/reset":
+                return _Reply(200, app.reset_emergency_stop())
+            if path == "/api/goals":
+                body = self._json_object()
+                return _Reply(201, app.send_goal(self._field(body, "location_name")))
+            if path == "/api/voice":
+                body = self._json_object()
+                transcript = self._field(body, "transcript")
+                return _Reply(200, app.handle_voice_command(transcript))
+            if path == "/api/safety/scenario":
+                body = self._json_object()
+                scenario = self._field(body, "scenario")
+                return _Reply(200, app.set_safety_scenario(scenario))
+            if path == "/api/locations":
+                body = self._json_object()
+                return _Reply(201, app.save_location(
+                    self._field(body, "name"),
+                    self._field(body, "x"),
+                    self._field(body, "y"),
+                    body.get("yaw", 0.0),
+                ))
+            if path == "/api/locations/remove":
+                body = self._json_object()
+                return _Reply(200, app.remove_location(self._field(body, "name")))
+            return _Reply(404, {"error": "not found"})
+
+        @staticmethod
+        def _field(body: dict[str, Any], name: str) -> Any:
+            if name not in body:
+                raise BadRequest(f"missing required field: {name}")
+            return body[name]
+
+        def _json_object(self) -> dict[str, Any]:
+            try:
+                parsed = json.loads(self._read_body())
+            except json.JSONDecodeError as error:
+                raise BadRequest(f"body is not valid JSON: {error}") from error
+            if not isinstance(parsed, dict):
+                raise BadRequest("body must be a JSON object")
+            return parsed
 
         def _read_body(self) -> str:
-            length = int(self.headers.get("Content-Length", "0"))
-            return self.rfile.read(length).decode("utf-8")
-
-        def _send_json(self, status: int, payload: dict[str, Any]) -> None:
-            encoded = json.dumps(payload).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(encoded)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(encoded)
-
-        def _send_file(self, path: Path, content_type: str) -> None:
+            raw = self.headers.get("Content-Length", "0")
             try:
-                content = path.read_bytes()
-            except FileNotFoundError:
-                self._send_json(404, {"error": "not found"})
-                return
-            self.send_response(200)
+                length = int(raw)
+            except ValueError as error:
+                raise BadRequest(f"invalid Content-Length: {raw!r}") from error
+            if length < 0:
+                raise BadRequest(f"invalid Content-Length: {raw!r}")
+            if length > max_body_bytes:
+                raise BadRequest(f"request body is larger than {max_body_bytes} bytes")
+            body = self.rfile.read(length)
+            if len(body) != length:
+                raise BadRequest("request body ended early")
+            try:
+                return body.decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise BadRequest("request body must be UTF-8") from error
+
+        def _send(self, reply: "_Reply") -> None:
+            if reply.body is None:
+                content = json.dumps(reply.payload).encode("utf-8")
+                content_type = "application/json"
+            else:
+                content, content_type = reply.body, reply.content_type
+            self.send_response(reply.status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             self.wfile.write(content)
 

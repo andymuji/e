@@ -21,8 +21,14 @@ const locationResponse = document.querySelector("#location-response");
 
 async function request(path, options = {}) {
   const response = await fetch(path, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error || "The robot could not complete that request.");
+  // A reply that is not JSON at all (a proxy error page, a dropped body) used
+  // to surface as a JSON parse error and lose the actual HTTP status.
+  let body = null;
+  try { body = await response.json(); } catch (error) { body = null; }
+  if (!response.ok) {
+    throw new Error((body && body.error) || `The robot could not complete that request (HTTP ${response.status}).`);
+  }
+  if (body === null) throw new Error("The robot sent a reply this console could not read.");
   return body;
 }
 
@@ -36,33 +42,109 @@ function showError(error) {
   statusMessage.textContent = error.message;
 }
 
+function number(value, digits, unit) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value.toFixed(digits)}${unit}`
+    : "unknown";
+}
+
+// The stop latch has three states here, not two. `null` means the console has
+// not been told: before the first status read, and after any failed one.
+// Showing "released" in that case is the one lie this page must never tell -
+// it invites someone to approach a robot whose software stop is still latched.
+// Only a status read that actually carried a boolean may say released.
+function renderLatch(engaged) {
+  if (engaged === null) {
+    latchValue.textContent = "unknown";
+    latchValue.classList.remove("engaged");
+    latchValue.classList.add("unknown");
+    // No "Reset stop" on an unknown latch: that control means "it is
+    // engaged, release it", which is a claim we cannot make. The STOP button
+    // stays available because engaging is always the safe direction. The
+    // "stopped" styling is left as it was, so a latch last seen engaged does
+    // not visually un-stop itself just because a poll failed.
+    estopReset.hidden = true;
+    estopButton.hidden = false;
+    return;
+  }
+  latchValue.textContent = engaged ? "ENGAGED" : "released";
+  latchValue.classList.toggle("engaged", engaged);
+  latchValue.classList.remove("unknown");
+  estopButton.hidden = engaged;
+  estopReset.hidden = !engaged;
+  document.body.classList.toggle("stopped", engaged);
+}
+
 function renderStatus(data) {
-  const goal = data.goal;
-  const safety = data.safety;
+  const goal = data && data.goal;
+  const safety = data && data.safety;
+  if (!goal || !safety) throw new Error("The robot sent an unrecognised status.");
+
+  // Latch first. Everything below it is a cosmetic field, and if one of them
+  // throws on unexpected data the latch must already be correct rather than
+  // left showing whatever the last render put there.
+  renderLatch(typeof safety.emergency_stop === "boolean" ? safety.emergency_stop : null);
+
   connection.classList.add("online");
   connection.lastChild.textContent = " Connected to robot";
-  statusLabel.textContent = data.safety_message;
+  statusLabel.textContent = data.safety_message || "";
   statusMark.textContent = data.safety_state === "clear" ? "OK" : "!";
-  statusMessage.textContent = safety.reason;
+  statusMessage.textContent = safety.reason || "";
   cancelButton.hidden = goal.state !== "navigating";
-  decisionValue.textContent = safety.state.toUpperCase();
-  speedValue.textContent = `${Math.round(safety.speed_scale * 100)}%`;
-  distanceValue.textContent = safety.nearest_obstacle_distance === null ? "invalid" : `${safety.nearest_obstacle_distance.toFixed(1)} m`;
-  ageValue.textContent = `${safety.reading_age.toFixed(1)} s`;
-  commandAgeValue.textContent = `${safety.command_age.toFixed(1)} s`;
-  latchValue.textContent = safety.emergency_stop ? "ENGAGED" : "released";
-  latchValue.classList.toggle("engaged", safety.emergency_stop);
-  estopButton.hidden = safety.emergency_stop;
-  estopReset.hidden = !safety.emergency_stop;
-  document.body.classList.toggle("stopped", safety.emergency_stop);
+  decisionValue.textContent = String(safety.state || "unknown").toUpperCase();
+  speedValue.textContent = typeof safety.speed_scale === "number" && Number.isFinite(safety.speed_scale)
+    ? `${Math.round(safety.speed_scale * 100)}%`
+    : "unknown";
+  // null is the sensor reporting no usable reading, which is not the same as
+  // the console not knowing.
+  distanceValue.textContent = safety.nearest_obstacle_distance === null
+    ? "invalid"
+    : number(safety.nearest_obstacle_distance, 1, " m");
+  ageValue.textContent = number(safety.reading_age, 1, " s");
+  commandAgeValue.textContent = number(safety.command_age, 1, " s");
   document.querySelectorAll(".scenario-card").forEach((button) => {
     button.classList.toggle("active", button.dataset.scenario === safety.scenario);
   });
 }
 
+function showStatusUnavailable(error) {
+  connection.classList.remove("online");
+  connection.lastChild.textContent = " Robot unreachable";
+  showError(error);
+  renderLatch(null);
+  decisionValue.textContent = "unknown";
+  speedValue.textContent = "unknown";
+  distanceValue.textContent = "unknown";
+  ageValue.textContent = "unknown";
+  commandAgeValue.textContent = "unknown";
+}
+
+const STATUS_POLL_MS = 3000;
+const STATUS_STALE_MS = 10000;
+let polling = false;
+let lastStatusAt = 0;
+
 async function refreshStatus() {
-  try { renderStatus(await request("/api/status")); }
-  catch (error) { connection.classList.remove("online"); showError(error); }
+  // A request that never settles must not queue more behind it, or a wedged
+  // server turns into a backlog that keeps overwriting the panel out of order.
+  if (polling) return;
+  polling = true;
+  try {
+    renderStatus(await request("/api/status"));
+    lastStatusAt = Date.now();
+  } catch (error) { showStatusUnavailable(error); }
+  finally { polling = false; }
+}
+
+// A fetch that hangs never rejects, so without this the panel would sit on its
+// last good reading indefinitely - latch included - with nothing to say the
+// robot stopped answering. Silence is not the same as "released".
+function checkStatusFreshness() {
+  if (Date.now() - lastStatusAt > STATUS_STALE_MS) {
+    showStatusUnavailable(
+      new Error("No safety status for over 10 seconds. Treat the robot's state as unknown."),
+    );
+  }
 }
 
 async function chooseLocation(name, button) {
@@ -76,7 +158,7 @@ async function chooseLocation(name, button) {
 }
 
 function renderLocations(locations) {
-  if (!locations.length) {
+  if (!Array.isArray(locations) || !locations.length) {
     grid.replaceChildren(Object.assign(document.createElement("p"), {
       className: "loading",
       textContent: "No places saved yet. Add one below.",
@@ -93,7 +175,7 @@ function renderLocations(locations) {
 
     const coords = document.createElement("span");
     coords.className = "location-coords";
-    coords.textContent = `${x.toFixed(2)}, ${y.toFixed(2)}`;
+    coords.textContent = `${number(x, 2, "")}, ${number(y, 2, "")}`;
 
     const go = document.createElement("button");
     go.className = "go-button";
@@ -125,8 +207,16 @@ async function loadLocations() {
   try {
     const data = await request("/api/locations");
     renderLocations(data.locations);
-    await refreshStatus();
-  } catch (error) { showError(error); grid.innerHTML = "<p class='loading'>Destinations are unavailable right now.</p>"; }
+  } catch (error) {
+    // Reported against the destination list, not the safety panel: a failed
+    // locations fetch says nothing about the state of the safety gate, and
+    // overwriting the panel with it hid whether the robot was stopped.
+    locationResponse.textContent = error.message;
+    renderLocations([]);
+    grid.firstChild.textContent = "Destinations are unavailable right now.";
+  }
+  // Always, so a locations failure still leaves the safety panel truthful.
+  await refreshStatus();
 }
 
 async function removeLocation(name) {
@@ -185,10 +275,13 @@ document.querySelectorAll(".scenario-card").forEach((button) => {
   });
 });
 
+// On failure neither button assumes anything about the latch: it re-reads,
+// and refreshStatus marks the latch unknown if that read fails too. A stop
+// request that errored may still have been applied.
 estopButton.addEventListener("click", async () => {
   estopButton.disabled = true;
   try { renderStatus(await request("/api/emergency_stop", { method: "POST" })); }
-  catch (error) { showError(error); }
+  catch (error) { showError(error); await refreshStatus(); }
   finally { estopButton.disabled = false; }
 });
 
@@ -196,7 +289,7 @@ estopReset.addEventListener("click", async () => {
   if (!window.confirm("Release the emergency stop? Check the robot is clear first.")) return;
   estopReset.disabled = true;
   try { renderStatus(await request("/api/emergency_stop/reset", { method: "POST" })); }
-  catch (error) { showError(error); }
+  catch (error) { showError(error); await refreshStatus(); }
   finally { estopReset.disabled = false; }
 });
 
@@ -225,5 +318,7 @@ locationForm.addEventListener("submit", async (event) => {
   } finally { submit.disabled = false; }
 });
 
+lastStatusAt = Date.now();
 loadLocations();
-setInterval(refreshStatus, 3000);
+setInterval(refreshStatus, STATUS_POLL_MS);
+setInterval(checkStatusFreshness, STATUS_POLL_MS);

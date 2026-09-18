@@ -52,6 +52,9 @@ h2 { font-size: clamp(2rem, 4vw, 3rem); }
 .diagnostics dt { color: var(--muted); font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; }
 .diagnostics dd { margin: 8px 0 0; color: var(--teal-dark); font-size: 1.3rem; font-weight: 800; }
 .diagnostics dd.engaged { color: var(--red); }
+/* Unknown must not read like a clear "released": the operator has to be able
+   to tell "the stop is off" from "the console has not been told". */
+.diagnostics dd.unknown { color: var(--muted); font-style: italic; }
 .estop-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 16px; padding: 20px 24px; border: 1px solid var(--red); border-left: 7px solid var(--red); background: var(--panel); }
 .estop-heading { font-size: 1.5rem; }
 .estop-note { max-width: 46ch; margin: 6px 0 0; color: var(--muted); line-height: 1.45; }
