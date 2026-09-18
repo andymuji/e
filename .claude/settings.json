@@ -21,15 +21,10 @@
       "Bash(gh pr list *)",
       "Bash(gh pr diff *)",
       "Bash(gh run list *)",
-      "Bash(gh run view *)",
-      "Bash(ros2 topic pub /initialpose *)"
+      "Bash(gh run view *)"
     ],
     "deny": [
-      "Bash(ros2 topic pub /cmd_vel *)",
-      "Bash(ros2 topic pub /cmd_vel_requested *)",
-      "Bash(ros2 topic pub /emergency_stop *)",
-      "Bash(ros2 topic pub /emergency_stop_reset *)",
-      "Bash(ros2 topic pub /goal_pose *)",
+      "Bash(ros2 topic pub *)",
       "Bash(ros2 service call *)"
     ]
   },

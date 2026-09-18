@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the repository's Python checks. See CLAUDE.md "Development Checks".
+# Run the repository's Python checks. See AGENTS.md "Development Checks".
 # Usage: check.sh [tests|lint|compile|all]   (default: all)
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1

@@ -27,7 +27,7 @@ if printf '%s\n' "$touched" | grep -qE '^[[:space:]]*(stop_distance|caution_dist
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: "stop_distance and caution_distance are derived, not chosen. Change the inputs in robot/ros2_ws/src/robot_bringup/config/base_dynamics.yaml instead - robot_safety.distances recomputes them, and the robot_bringup tests fail on drift. See CLAUDE.md, Safety Rules."
+      permissionDecisionReason: "stop_distance and caution_distance are derived, not chosen. Change the inputs in robot/ros2_ws/src/robot_bringup/config/base_dynamics.yaml instead - robot_safety.distances recomputes them, and the robot_bringup tests fail on drift. See AGENTS.md, Safety Rules."
     }
   }'
 fi

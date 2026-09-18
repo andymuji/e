@@ -36,6 +36,6 @@ Pass extra `unittest` arguments after the mode: `check.sh tests -v`.
 - The `robot_bringup` and `robot_navigation` suites recompute `stop_distance`,
   `caution_distance`, the Nav2 footprint, and the inflation radius from
   `base_dynamics.yaml` and the URDF, and fail on drift. A failure there means an
-  input changed or a derived value was hand-edited - fix the input, per CLAUDE.md.
+  input changed or a derived value was hand-edited - fix the input, per AGENTS.md.
 - This runs plain Python. ROS package builds (`colcon build`) still need
-  `source /opt/ros/jazzy/setup.bash` first; see CLAUDE.md.
+  `source /opt/ros/jazzy/setup.bash` first; see AGENTS.md.
