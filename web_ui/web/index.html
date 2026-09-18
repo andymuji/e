@@ -18,10 +18,13 @@
     </header>
 
     <section class="status-panel" aria-live="polite">
-      <div class="status-mark" id="status-mark">OK</div>
+      <!-- Neutral until a status read arrives. A console that says OK before
+           it has heard from the robot is asserting something it does not
+           know yet. -->
+      <div class="status-mark" id="status-mark">?</div>
       <div class="status-copy">
-        <p class="status-label" id="safety-label">Safety checks active</p>
-        <p class="status-message" id="status-message">The robot is ready for a destination.</p>
+        <p class="status-label" id="safety-label">Waiting for the robot</p>
+        <p class="status-message" id="status-message">No safety status received yet.</p>
       </div>
       <button class="cancel-button" id="cancel-button" type="button" hidden>Cancel trip</button>
     </section>
@@ -57,12 +60,13 @@
         <button class="scenario-card" type="button" data-scenario="invalid_sensor"><strong>Invalid sensor</strong><span>No usable range reading</span></button>
       </div>
       <dl class="diagnostics" aria-live="polite">
-        <div><dt>Decision</dt><dd id="decision-value">CLEAR</dd></div>
-        <div><dt>Speed scale</dt><dd id="speed-value">100%</dd></div>
-        <div><dt>Nearest obstacle</dt><dd id="distance-value">1.5 m</dd></div>
-        <div><dt>Reading age</dt><dd id="age-value">0.0 s</dd></div>
-        <div><dt>Command age</dt><dd id="command-age-value">0.0 s</dd></div>
-        <div><dt>Stop latch</dt><dd id="latch-value">released</dd></div>
+        <div><dt>Decision</dt><dd id="decision-value">unknown</dd></div>
+        <div><dt>Speed scale</dt><dd id="speed-value">unknown</dd></div>
+        <div><dt>Nearest obstacle</dt><dd id="distance-value">unknown</dd></div>
+        <div><dt>Reading age</dt><dd id="age-value">unknown</dd></div>
+        <div><dt>Command age</dt><dd id="command-age-value">unknown</dd></div>
+        <!-- Only a status read may ever put "released" here: see renderLatch. -->
+        <div><dt>Stop latch</dt><dd class="unknown" id="latch-value">unknown</dd></div>
       </dl>
     </section>
 

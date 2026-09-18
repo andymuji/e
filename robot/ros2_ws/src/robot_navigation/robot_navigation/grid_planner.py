@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from heapq import heappop, heappush
+import operator
 
 Cell = tuple[int, int]
 
@@ -8,25 +9,49 @@ class NoPathError(RuntimeError):
     pass
 
 
+def _as_cell(value: object, label: str) -> Cell:
+    """Normalise a cell to a plain pair of ints, or refuse it.
+
+    Anything that is not exactly two integers can never compare equal to a
+    neighbour, so an unchecked one is silently ignored rather than rejected:
+    an obstacle at `(1.5, 1)` or `(1, 1, 1)` is accepted as in bounds and
+    then planned straight through. A planner that quietly drops an obstacle
+    it was told about is worse than one that refuses the input.
+    """
+    try:
+        x, y = value  # type: ignore[misc]
+        return (operator.index(x), operator.index(y))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{label} must be a pair of integers: {value!r}") from error
+
+
 class GridPlanner:
     """Small deterministic planner for simulator and integration tests."""
 
     def __init__(self, width: int, height: int, obstacles: Iterable[Cell] = ()):
+        try:
+            width = operator.index(width)
+            height = operator.index(height)
+        except TypeError as error:
+            raise ValueError("grid dimensions must be integers") from error
         if width <= 0 or height <= 0:
             raise ValueError("grid dimensions must be positive")
         self.width = width
         self.height = height
-        self._obstacles = set(obstacles)
-        if any(not self._in_bounds(cell) for cell in self._obstacles):
-            raise ValueError("obstacles must be inside the grid")
+        self._obstacles: set[Cell] = set()
+        self.set_obstacles(obstacles)
 
     def set_obstacles(self, obstacles: Iterable[Cell]) -> None:
-        candidate = set(obstacles)
+        candidate = {_as_cell(cell, "obstacle") for cell in obstacles}
+        # Validated before it is stored, so a bad update leaves the previous
+        # obstacles in place rather than half-applying.
         if any(not self._in_bounds(cell) for cell in candidate):
             raise ValueError("obstacles must be inside the grid")
         self._obstacles = candidate
 
     def plan(self, start: Cell, goal: Cell) -> list[Cell]:
+        start = _as_cell(start, "start")
+        goal = _as_cell(goal, "goal")
         self._validate_free_cell(start, "start")
         self._validate_free_cell(goal, "goal")
         frontier: list[tuple[int, Cell]] = [(0, start)]

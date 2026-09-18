@@ -44,7 +44,12 @@ class BaseFootprint:
 
     @property
     def polygon(self) -> list[tuple[float, float]]:
-        """Corners in base_link, counter-clockwise from the front left.
+        """Corners in base_link, clockwise from the front left.
+
+        In base_link's x-forward, y-left frame this order walks front left,
+        front right, rear right, rear left, which is clockwise. The order is
+        restated in `nav2.yaml` and compared corner by corner by the bringup
+        tests, so it is fixed: change it and that comparison fails.
 
         Centred on base_link because that is where the URDF puts the chassis.
         A base whose wheels are not centred needs this offset to match, or
@@ -81,6 +86,14 @@ class BaseFootprint:
         )
 
     def as_costmap_footprint(self) -> str:
-        """The footprint in the string-of-pairs form Nav2 parameters take."""
-        pairs = ", ".join(f"[{x:.4g}, {y:.4g}]" for x, y in self.polygon)
+        """The footprint in the string-of-pairs form Nav2 parameters take.
+
+        Enough significant digits to reproduce the polygon exactly: this
+        string is what gets pasted into `nav2.yaml`, and the bringup tests
+        compare it back against these dimensions to 6 decimal places. At 4
+        significant digits a measured 0.4123 m base emitted a half-length of
+        0.2061 instead of 0.20615 - a footprint 0.05 mm smaller than the
+        robot, and a drift check that fails for no visible reason.
+        """
+        pairs = ", ".join(f"[{x:.10g}, {y:.10g}]" for x, y in self.polygon)
         return f"[{pairs}]"
