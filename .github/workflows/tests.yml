@@ -18,7 +18,7 @@ jobs:
       - name: Install lint dependencies
         run: pip install ruff
       - name: Lint
-        run: ruff check robot/ros2_ws/src web_ui
+        run: .claude/skills/run-checks/check.sh lint
 
   unit-tests:
     runs-on: ubuntu-latest
@@ -30,20 +30,9 @@ jobs:
       - name: Install test dependencies
         run: pip install pyyaml
       - name: Run unit tests
-        run: |
-          for suite in \
-            robot/ros2_ws/src/robot_bringup/tests \
-            robot/ros2_ws/src/robot_core/tests \
-            robot/ros2_ws/src/robot_description/tests \
-            robot/ros2_ws/src/robot_locations/tests \
-            robot/ros2_ws/src/robot_navigation/tests \
-            robot/ros2_ws/src/robot_safety/tests \
-            robot/ros2_ws/src/robot_voice/tests \
-            web_ui/tests; do
-            python -m unittest discover -s "$suite" -v || exit 1
-          done
+        run: .claude/skills/run-checks/check.sh tests -v
       - name: Compile Python packages
-        run: python -m compileall -q robot/ros2_ws/src web_ui
+        run: .claude/skills/run-checks/check.sh compile
 
   ros-build:
     runs-on: ubuntu-latest

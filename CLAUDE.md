@@ -10,6 +10,15 @@ ROS 2-based assistive robot for elder care. See [docs/decisions/0001-ros-baselin
 - Python 3
 - Apache-2.0 license
 
+## Environment
+
+`.devcontainer/devcontainer.json` provides ROS 2 Jazzy, Gazebo Harmonic, colcon,
+ruff, the GitHub CLI, and the Claude Code CLI. A GitHub Codespace started
+without rebuilding into that container has Python and ruff only - no
+`/opt/ros`, no `colcon`, no `gz`. The Python checks below run either way;
+anything under "For ROS package work" needs the container (VS Code command
+palette: **Dev Containers: Rebuild Container**).
+
 ## Packages
 
 - `robot_bringup` - launch files, parameters, simulation worlds
@@ -35,29 +44,22 @@ measured values before any hardware test.
 - Motion path: `/cmd_vel_requested` -> `robot_safety` -> `/cmd_vel` -> driver or Gazebo DiffDrive. Nothing else publishes `/cmd_vel`.
 - Nav2 is a motion source, not a motion authority. Every Nav2 node that can emit a velocity has `cmd_vel` remapped to `cmd_vel_requested`, including `behavior_server`: its recovery behaviours drive the robot, and they run when something has already gone wrong.
 - The safety gate is never put under lifecycle management. The lifecycle manager deactivates its nodes on failure, and the gate has to still be running then.
-- `stop_distance` and `caution_distance` are derived from `robot_bringup/config/base_dynamics.yaml`, and the Nav2 footprint and inflation radius from the URDF dimensions. Do not hand-edit them; change the inputs. The tests recompute both and fail on drift.
+- `stop_distance` and `caution_distance` are derived from `robot_bringup/config/base_dynamics.yaml`, and the Nav2 footprint and inflation radius from the URDF dimensions. Do not hand-edit them; change the inputs. The tests recompute both and fail on drift, and `.claude/hooks/guard-derived-distances.sh` refuses agent edits that touch either value in `safety.yaml`.
 
 ## Development Checks
 
 From the repository root:
 
 ```bash
-# Run the full Python test suite.
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_bringup/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_core/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_description/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_locations/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_navigation/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s robot/ros2_ws/src/robot_voice/tests -v
-PYTHONPATH=robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice python3 -m unittest discover -s web_ui/tests -v
-
-# Compile Python sources.
-python3 -m compileall -q robot/ros2_ws/src web_ui
-
-# Lint.
-ruff check robot/ros2_ws/src web_ui
+.claude/skills/run-checks/check.sh          # all eight test suites, compileall, ruff
+.claude/skills/run-checks/check.sh tests    # suites only (add -v for verbose)
+.claude/skills/run-checks/check.sh lint     # ruff only
+.claude/skills/run-checks/check.sh compile  # compileall only
 ```
+
+The script sets the `PYTHONPATH` the suites need; `python3 -m unittest` run
+directly without it fails on imports. CI runs the same script, so a green local
+run and a green pipeline cannot drift apart.
 
 For ROS package work, source Jazzy first and build from `robot/ros2_ws`:
 

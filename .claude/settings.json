@@ -1,0 +1,46 @@
+{
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true
+  },
+  "env": {
+    "PYTHONPATH": "robot/ros2_ws/src/robot_core:robot/ros2_ws/src/robot_locations:robot/ros2_ws/src/robot_navigation:robot/ros2_ws/src/robot_safety:robot/ros2_ws/src/robot_voice"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(.claude/skills/run-checks/check.sh *)",
+      "Bash(python3 -m unittest *)",
+      "Bash(python3 -m compileall *)",
+      "Bash(ruff check *)",
+      "Bash(colcon list *)",
+      "Bash(colcon build *)",
+      "Bash(colcon test *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh run list *)",
+      "Bash(gh run view *)"
+    ],
+    "deny": [
+      "Bash(ros2 topic pub *)",
+      "Bash(ros2 service call *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-derived-distances.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking derived safety distances"
+          }
+        ]
+      }
+    ]
+  }
+}

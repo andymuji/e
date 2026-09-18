@@ -1,0 +1,37 @@
+{
+  "python.analysis.extraPaths": [
+    "robot/ros2_ws/src/robot_core",
+    "robot/ros2_ws/src/robot_locations",
+    "robot/ros2_ws/src/robot_navigation",
+    "robot/ros2_ws/src/robot_safety",
+    "robot/ros2_ws/src/robot_voice"
+  ],
+  "python.testing.unittestEnabled": true,
+  "python.testing.pytestEnabled": false,
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": false,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports.ruff": "explicit"
+    }
+  },
+  "ruff.configuration": "ruff.toml",
+  "files.associations": {
+    "*.xacro": "xml",
+    "*.urdf": "xml",
+    "*.sdf": "xml",
+    "*.rviz": "yaml"
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "**/.ruff_cache": true,
+    "robot/ros2_ws/build": true,
+    "robot/ros2_ws/install": true,
+    "robot/ros2_ws/log": true
+  },
+  "files.watcherExclude": {
+    "**/robot/ros2_ws/build/**": true,
+    "**/robot/ros2_ws/install/**": true,
+    "**/robot/ros2_ws/log/**": true
+  }
+}

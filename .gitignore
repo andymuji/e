@@ -1,3 +1,11 @@
 __pycache__/
 *.py[cod]
 .venv/
+
+# colcon build artifacts
+build/
+install/
+log/
+
+# Personal Claude Code overrides; .claude/settings.json is shared and committed.
+.claude/settings.local.json

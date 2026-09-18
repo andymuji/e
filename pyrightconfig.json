@@ -1,0 +1,15 @@
+{
+  "include": ["robot/ros2_ws/src", "web_ui"],
+  "exclude": ["**/__pycache__", "build", "install", "log"],
+  "extraPaths": [
+    "robot/ros2_ws/src/robot_core",
+    "robot/ros2_ws/src/robot_locations",
+    "robot/ros2_ws/src/robot_navigation",
+    "robot/ros2_ws/src/robot_safety",
+    "robot/ros2_ws/src/robot_voice"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportMissingModuleSource": "none"
+}
