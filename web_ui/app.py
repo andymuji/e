@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from urllib.parse import urlparse
 import uuid
 
-from robot_core import Pose2D
+from robot_core import NavigationGoal, Pose2D
 from robot_locations import LocationStore
 from robot_safety import SafetyController
 from robot_voice import CommandGateway
@@ -169,32 +169,82 @@ class RobotWebApp:
 
     def locations(self) -> dict[str, list[dict[str, Any]]]:
         with self._store_lock:
-            # names() then get_goal() per name is a read-modify-read: without
-            # the lock a concurrent removal between the two raised KeyError
-            # and the destination list vanished behind a failed request.
+            # LocationStore.locations() reads names and poses together. Asking
+            # for names and then a goal per name was a read-modify-read, and a
+            # concurrent removal between the two raised KeyError and took the
+            # whole destination list down with it.
             return {
                 "locations": [
-                    {"name": goal.location_name, "x": goal.pose.x, "y": goal.pose.y,
-                     "yaw": goal.pose.yaw}
-                    for goal in map(
-                        self.location_store.get_goal, self.location_store.names()
-                    )
+                    {"name": name, "x": pose.x, "y": pose.y, "yaw": pose.yaw}
+                    for name, pose in self.location_store.locations()
                 ]
             }
 
-    def save_location(
-        self, name: str, x: float, y: float, yaw: float = 0.0
-    ) -> dict[str, Any]:
-        """Approve a named pose. Saving an existing name overwrites it."""
+    def _approve(self, name: str, x: float, y: float, yaw: float) -> NavigationGoal:
+        """Validate a requested pose and save it. Caller holds the lock."""
         name = _text_field(name, "name")
         if not name.strip():
             raise BadRequest("name must not be empty")
         pose = Pose2D(
             _number_field(x, "x"), _number_field(y, "y"), _number_field(yaw, "yaw")
         )
+        self.location_store.save_location(name, pose)
+        return self.location_store.get_goal(name)
+
+    def save_location(
+        self, name: str, x: float, y: float, yaw: float = 0.0
+    ) -> dict[str, Any]:
+        """Approve a named pose. Saving an existing name overwrites it."""
         with self._store_lock:
-            self.location_store.save_location(name, pose)
+            self._approve(name, x, y, yaw)
             return self.locations()
+
+    def label_location(
+        self, name: str, x: float, y: float, yaw: float = 0.0
+    ) -> dict[str, Any]:
+        """Approve a pose dropped on the floor plan, reporting just that one.
+
+        Same approval path as save_location, so a label dragged onto the map
+        is validated exactly like one typed into the form: a NaN coordinate is
+        a destination the robot can be sent to and never arrive at.
+        """
+        with self._store_lock:
+            goal = self._approve(name, x, y, yaw)
+            return {
+                "name": goal.location_name,
+                "x": goal.pose.x,
+                "y": goal.pose.y,
+                "yaw": goal.pose.yaw,
+            }
+
+    def map_data(self) -> dict[str, Any]:
+        """Build a small floor-plan view from operator-approved map poses.
+
+        This deterministic adapter is intentionally local and replaceable: a
+        SLAM map provider can later supply the same map contract without
+        changing the UI. The walls and the robot pose below are placeholders
+        and describe no room that exists.
+        """
+        locations = self.locations()["locations"]
+        max_x = max((float(item["x"]) for item in locations), default=5.0)
+        max_y = max((float(item["y"]) for item in locations), default=4.0)
+        return {
+            "bounds": {
+                "min_x": 0.0,
+                "min_y": 0.0,
+                "max_x": max(6.0, max_x + 1.0),
+                "max_y": max(5.0, max_y + 1.0),
+            },
+            "walls": [
+                [[0.4, 0.4], [5.6, 0.4], [5.6, 4.6], [0.4, 4.6], [0.4, 0.4]],
+                [[3.1, 0.4], [3.1, 1.55]],
+                [[3.1, 2.25], [3.1, 4.6]],
+                [[0.4, 2.55], [1.35, 2.55]],
+                [[2.1, 2.55], [3.1, 2.55]],
+            ],
+            "robot": {"x": 0.85, "y": 0.9, "yaw": 0.0},
+            "locations": locations,
+        }
 
     def remove_location(self, name: str) -> dict[str, Any]:
         name = _text_field(name, "name")
@@ -358,6 +408,8 @@ def make_handler(app: RobotWebApp, web_root: Path):
         def _route_get(self, path: str) -> "_Reply":
             if path == "/api/locations":
                 return _Reply(200, app.locations())
+            if path == "/api/map":
+                return _Reply(200, app.map_data())
             if path == "/api/status":
                 return _Reply(200, app.status())
             static = static_files.get(path)

@@ -40,6 +40,26 @@ class RobotWebAppTests(unittest.TestCase):
             {"locations": [{"name": "kitchen", "x": 1.0, "y": 2.0, "yaw": 0.0}]},
         )
 
+    def test_map_is_built_from_saved_locations(self) -> None:
+        map_data = self.app.map_data()
+
+        self.assertEqual(map_data["locations"][0]["name"], "kitchen")
+        self.assertGreaterEqual(map_data["bounds"]["max_x"], 6.0)
+        self.assertTrue(map_data["walls"])
+
+    def test_can_save_a_label_from_the_map(self) -> None:
+        result = self.app.label_location("Reading nook", 3.25, 1.5)
+
+        self.assertEqual(result["name"], "reading nook")
+        self.assertEqual(self.app.locations()["locations"][1]["x"], 3.25)
+
+    def test_a_label_dropped_on_the_map_is_validated_like_any_other(self) -> None:
+        # The map label path shares save_location's approval, so a NaN
+        # coordinate is refused rather than stored as a destination the robot
+        # can be sent to and never arrive at.
+        with self.assertRaises(ValueError):
+            self.app.label_location("nowhere", float("nan"), 1.0)
+
     def test_sends_named_goal_and_exposes_status(self) -> None:
         result = self.app.send_goal(" KITCHEN ")
 
