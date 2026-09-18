@@ -17,4 +17,9 @@ setup(
     description="Voice command intent parsing and destination gating for the robot.",
     license="Apache-2.0",
     tests_require=["pytest"],
+    entry_points={
+        "console_scripts": [
+            "voice_node = robot_voice.voice_node:main",
+        ],
+    },
 )
