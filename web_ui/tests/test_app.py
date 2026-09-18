@@ -1,6 +1,6 @@
 import contextlib
-from http.server import ThreadingHTTPServer
 import http.client
+from http.server import ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
