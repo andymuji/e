@@ -63,6 +63,36 @@
       </div>
     </section>
 
+    <section class="map-section" aria-labelledby="map-heading">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">LIVE MAP</p>
+          <h2 id="map-heading">Label your floor plan</h2>
+        </div>
+        <p class="selection-note">Tap an open spot to add a location. Drag to pan; pinch or use the controls to zoom.</p>
+      </div>
+      <div class="map-card">
+        <div class="map-toolbar" aria-label="Map controls">
+          <button class="map-control" id="zoom-in" type="button" aria-label="Zoom in">+</button>
+          <button class="map-control" id="zoom-out" type="button" aria-label="Zoom out">−</button>
+          <button class="map-control reset-control" id="reset-map" type="button">Reset view</button>
+          <p id="map-instructions">Tap the map to place a label</p>
+        </div>
+        <div class="map-viewport" id="map-viewport">
+          <svg id="floor-map" viewBox="0 0 600 500" role="img" aria-describedby="map-instructions" aria-label="Interactive floor map"></svg>
+        </div>
+        <form class="label-form" id="label-form" hidden>
+          <p id="label-position">New map location</p>
+          <label for="location-label">Location name</label>
+          <div class="label-actions">
+            <input id="location-label" name="location-label" maxlength="48" autocomplete="off" required>
+            <button type="submit">Save label</button>
+            <button class="secondary-button" id="discard-label" type="button">Discard</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
     <p class="footer-note">The robot will stop if its sensors detect an obstacle or if the safety system needs attention.</p>
   </main>
   <script src="/app.js"></script>

@@ -22,7 +22,23 @@ class RobotWebAppTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_lists_only_approved_locations(self) -> None:
-        self.assertEqual(self.app.locations(), {"locations": [{"name": "kitchen"}]})
+        self.assertEqual(
+            self.app.locations(),
+            {"locations": [{"name": "kitchen", "x": 1.0, "y": 2.0, "yaw": 0.0}]},
+        )
+
+    def test_map_is_built_from_saved_locations(self) -> None:
+        map_data = self.app.map_data()
+
+        self.assertEqual(map_data["locations"][0]["name"], "kitchen")
+        self.assertGreaterEqual(map_data["bounds"]["max_x"], 6.0)
+        self.assertTrue(map_data["walls"])
+
+    def test_can_save_a_label_from_the_map(self) -> None:
+        result = self.app.label_location("Reading nook", 3.25, 1.5)
+
+        self.assertEqual(result["name"], "reading nook")
+        self.assertEqual(self.app.locations()["locations"][1]["x"], 3.25)
 
     def test_sends_named_goal_and_exposes_status(self) -> None:
         result = self.app.send_goal(" KITCHEN ")

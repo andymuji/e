@@ -37,6 +37,10 @@ class LocationStore:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._locations))
 
+    def locations(self) -> tuple[tuple[str, Pose2D], ...]:
+        """Return saved locations with their poses in a stable order."""
+        return tuple((name, self._locations[name]) for name in sorted(self._locations))
+
     def load(self) -> None:
         content = json.loads(self.path.read_text())
         if not isinstance(content, dict):

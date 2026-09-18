@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import uuid
 
 from robot_locations import LocationStore
+from robot_core import Pose2D
 from robot_safety import SafetyController
 
 
@@ -107,8 +108,40 @@ class RobotWebApp:
         self.dispatcher = dispatcher
         self.safety = safety or SafetyScenarioAdapter()
 
-    def locations(self) -> dict[str, list[dict[str, str]]]:
-        return {"locations": [{"name": name} for name in self.location_store.names()]}
+    def locations(self) -> dict[str, list[dict[str, float | str]]]:
+        return {
+            "locations": [
+                {"name": name, "x": pose.x, "y": pose.y, "yaw": pose.yaw}
+                for name, pose in self.location_store.locations()
+            ]
+        }
+
+    def map_data(self) -> dict[str, Any]:
+        """Build a small floor-plan view from operator-approved map poses.
+
+        This deterministic adapter is intentionally local and replaceable: a SLAM
+        map provider can later supply the same map contract without changing the UI.
+        """
+        locations = self.locations()["locations"]
+        max_x = max((float(item["x"]) for item in locations), default=5.0)
+        max_y = max((float(item["y"]) for item in locations), default=4.0)
+        return {
+            "bounds": {"min_x": 0.0, "min_y": 0.0, "max_x": max(6.0, max_x + 1.0), "max_y": max(5.0, max_y + 1.0)},
+            "walls": [
+                [[0.4, 0.4], [5.6, 0.4], [5.6, 4.6], [0.4, 4.6], [0.4, 0.4]],
+                [[3.1, 0.4], [3.1, 1.55]],
+                [[3.1, 2.25], [3.1, 4.6]],
+                [[0.4, 2.55], [1.35, 2.55]],
+                [[2.1, 2.55], [3.1, 2.55]],
+            ],
+            "robot": {"x": 0.85, "y": 0.9, "yaw": 0.0},
+            "locations": locations,
+        }
+
+    def label_location(self, name: str, x: float, y: float, yaw: float = 0.0) -> dict[str, Any]:
+        self.location_store.save_location(name, Pose2D(float(x), float(y), float(yaw)))
+        goal = self.location_store.get_goal(name)
+        return {"name": goal.location_name, "x": goal.pose.x, "y": goal.pose.y, "yaw": goal.pose.yaw}
 
     def status(self) -> dict[str, Any]:
         safety = self.safety.status()
@@ -142,6 +175,8 @@ def make_handler(app: RobotWebApp, web_root: Path):
             path = urlparse(self.path).path
             if path == "/api/locations":
                 self._send_json(200, app.locations())
+            elif path == "/api/map":
+                self._send_json(200, app.map_data())
             elif path == "/api/status":
                 self._send_json(200, app.status())
             elif path == "/" or path == "/index.html":
@@ -160,6 +195,9 @@ def make_handler(app: RobotWebApp, web_root: Path):
                     body = json.loads(self._read_body())
                     result = app.send_goal(body["location_name"])
                     self._send_json(201, result)
+                elif path == "/api/locations":
+                    body = json.loads(self._read_body())
+                    self._send_json(201, app.label_location(body["name"], body["x"], body["y"], body.get("yaw", 0.0)))
                 elif path == "/api/goals/cancel":
                     self._send_json(200, app.cancel_goal())
                 elif path == "/api/safety/scenario":
