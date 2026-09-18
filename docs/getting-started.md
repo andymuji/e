@@ -81,6 +81,15 @@ map Nav2 localizes against is a reviewed artifact:
 ros2 run nav2_map_server map_saver_cli -f maps/test_room
 ```
 
+**No map is committed yet**, so `navigation.launch.py` has nothing to load
+until someone does the above and checks the result in. Build one first, or
+Nav2 will come up and refuse every goal. A map saved without driving the robot
+around covers only what the lidar saw from the spawn point, and a goal outside
+that patch is rejected with "Start Coordinates ... outside bounds" - so cover
+the room before saving. Note also that SLAM anchors the map at the robot's
+starting pose: the initial pose you give AMCL is in map coordinates, which are
+not the Gazebo world coordinates the robot was spawned at.
+
 ## Navigate to a goal
 
 Start the simulation with its own gate turned off, because this launch brings
@@ -129,11 +138,23 @@ and its numbers must be replaced with measured ones before the Nav2
 footprint, the inflation radius, or the stopping distances derived from them
 mean anything.
 
-The SLAM, AMCL, and Nav2 configuration in `robot_bringup/config` has been
-written and is checked for internal consistency by the test suite, but it has
-not yet been run against the simulator: this repository's CI has no Gazebo.
-Treat the first `slam.launch.py` and `navigation.launch.py` run as bring-up
-work, not as a regression test. Expect to tune AMCL and the DWB critics.
+The SLAM, AMCL, and Nav2 configuration in `robot_bringup/config` has now been
+run against the simulator once, and that first run found four things the test
+suite could not see: Gazebo's GUI aborts where there is no display and takes
+the server with it (hence `headless:=true`), `slam_toolbox` is a lifecycle
+node that sat in `unconfigured` forever when launched as a plain node, the
+Nav2 planner plugin was named in Humble's form and aborted the whole bringup,
+and the gate took localization freshness from a topic AMCL stops publishing
+when the robot stands still, which deadlocked it. All four are fixed.
+
+CI still has no Gazebo, so none of this is a regression test - the suite
+checks the configuration for internal consistency and nothing more. Treat
+further simulator work as bring-up, and expect to tune AMCL and the DWB
+critics. Run the simulator headless where there is no display:
+
+```bash
+ros2 launch robot_bringup simulation.launch.py rviz:=false headless:=true
+```
 
 ## View the robot without a simulator
 
