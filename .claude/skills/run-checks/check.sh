@@ -5,7 +5,20 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
 SRC=robot/ros2_ws/src
-export PYTHONPATH=$SRC/robot_core:$SRC/robot_locations:$SRC/robot_navigation:$SRC/robot_safety:$SRC/robot_voice
+
+# Source ROS 2 when it is installed, so the rclpy-dependent suites actually run
+# instead of skipping. A Codespace without the devcontainer has no /opt/ros and
+# skips those suites exactly as before.
+if [[ -z ${ROS_DISTRO:-} && -f /opt/ros/jazzy/setup.bash ]]; then
+  set +u
+  # shellcheck disable=SC1091
+  source /opt/ros/jazzy/setup.bash
+  set -u
+fi
+
+# Append, never replace: overwriting PYTHONPATH drops ROS's own site-packages
+# and makes the safety-node tests skip even inside the container.
+export PYTHONPATH=$SRC/robot_core:$SRC/robot_locations:$SRC/robot_navigation:$SRC/robot_safety:$SRC/robot_voice${PYTHONPATH:+:$PYTHONPATH}
 
 SUITES=(
   $SRC/robot_bringup/tests
