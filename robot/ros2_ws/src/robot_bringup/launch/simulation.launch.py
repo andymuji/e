@@ -15,7 +15,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -27,6 +27,7 @@ def generate_launch_description() -> LaunchDescription:
 
     world = LaunchConfiguration("world")
     use_rviz = LaunchConfiguration("rviz")
+    headless = LaunchConfiguration("headless")
 
     robot_description = ParameterValue(
         Command(["xacro ", str(description_share / "urdf" / "robot.urdf.xacro")]),
@@ -42,12 +43,30 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "rviz", default_value="true", description="Start RViz."
         ),
+        DeclareLaunchArgument(
+            "headless",
+            default_value="false",
+            description=(
+                "Run Gazebo as a server with no GUI. Required where there is "
+                "no display: the GUI aborts on the missing Qt platform plugin "
+                "and takes the server down with it, leaving `create` retrying "
+                "for a world that will never appear."
+            ),
+        ),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 str(ros_gz_sim_share / "launch" / "gz_sim.launch.py")
             ),
-            launch_arguments={"gz_args": ["-r -v 3 ", world]}.items(),
+            launch_arguments={
+                "gz_args": [
+                    "-r -v 3 ",
+                    PythonExpression(
+                        ["'-s ' if '", headless, "'.lower() == 'true' else ''"]
+                    ),
+                    world,
+                ]
+            }.items(),
         ),
 
         Node(

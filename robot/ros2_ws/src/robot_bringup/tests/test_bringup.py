@@ -46,8 +46,16 @@ def evaluate(expression: str, properties: dict[str, float]) -> float:
     return float(eval(body, {"__builtins__": {}, "pi": math.pi}, dict(properties)))
 
 
+# Every launch_ros action that starts a process which could publish a
+# velocity. LifecycleNode belongs here as much as Node does: a node that can
+# drive can drive whether or not it is managed, and a helper blind to it would
+# report an empty set for a launch file full of them - the safety assertions
+# below would then pass by finding nothing.
+LAUNCH_NODE_ACTIONS = {"Node", "LifecycleNode"}
+
+
 def launched_packages(source: str) -> set[str]:
-    """The `package=` of every launch_ros Node in a launch file.
+    """The `package=` of every launch_ros node action in a launch file.
 
     Read from the syntax tree rather than by searching the text, so a package
     named in a comment or a docstring is not mistaken for a running node.
@@ -56,7 +64,7 @@ def launched_packages(source: str) -> set[str]:
     for node in ast.walk(ast.parse(source)):
         if not isinstance(node, ast.Call):
             continue
-        if getattr(node.func, "id", None) != "Node":
+        if getattr(node.func, "id", None) not in LAUNCH_NODE_ACTIONS:
             continue
         for keyword in node.keywords:
             if keyword.arg == "package" and isinstance(keyword.value, ast.Constant):
