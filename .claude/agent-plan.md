@@ -74,3 +74,34 @@ editing `safety.yaml` through Bash (`sed`, a heredoc) bypasses it. The
 `robot_bringup` drift tests still catch the result, so the guard is a fast
 failure rather than the only one - but it is not airtight, and agents told to
 prefer Bash for edits are exactly the case it misses.
+
+---
+
+# Second fan-out: 2026-09-19
+
+The first four tracks are merged. `check.sh` now discovers packages and suites
+by globbing `robot/ros2_ws/src`, so a new package is on `PYTHONPATH` and under
+test without editing a shared file - that is what keeps this round's two new
+packages from colliding.
+
+Still hardware-blocked, and still only this: the URDF dimensions and
+`base_dynamics.yaml`. Everything below is measurement-independent.
+
+| Agent | Track | Owns |
+|---|---|---|
+| 5 | Console to ROS: the operator console drives a real graph | `web_ui/**`, new `robot_console/**` |
+| 6 | Navigation bring-up: map the test room, reach a goal | `robot_bringup/**`, `robot_description/**`, `docs/getting-started.md` |
+| 7 | Flight recorder: recorded runs as safety evidence | new `robot_telemetry/**`, `docs/safety-test-procedure.md` |
+| 8 | Voice input path and the speech-provider ADR | `robot_voice/**`, `docs/decisions/0002-*.md` |
+
+Shared files nobody owns: `README.md`, `AGENTS.md`, this file, `.claude/**`,
+`.github/**`. The integrator edits those at merge, including adding the two
+new packages to the CI `ros-build` package list.
+
+`robot_safety` and `robot_core` are read-only for all four. The gate is not
+this round's work; three of the four tracks exist to observe it.
+
+Same invariants as the first round, plus: `ros2 topic pub` and
+`ros2 service call` are denied by repo policy, so an agent that needs the
+robot to move asks Nav2 for a goal rather than routing around the gate or
+around the permission.
