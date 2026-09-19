@@ -1,13 +1,14 @@
 ---
 name: run-checks
-description: Run this repository's Python checks - the eight unittest suites across the ROS 2 packages and web_ui, compileall, and ruff. Use whenever asked to run the tests, lint, or verify a change before committing, and after editing anything under robot/ros2_ws/src or web_ui.
+description: Run this repository's Python checks - every unittest suite across the ROS 2 packages and web_ui, compileall, and ruff. Use whenever asked to run the tests, lint, or verify a change before committing, and after editing anything under robot/ros2_ws/src or web_ui.
 ---
 
 # Run checks
 
-Every suite needs the five source packages on `PYTHONPATH`; running `python3 -m
-unittest` without it fails on imports. The script sets it and runs all eight
-suites, so use the script rather than assembling the command by hand.
+Every suite needs the workspace's source packages on `PYTHONPATH`; running
+`python3 -m unittest` without it fails on imports. The script finds both the
+packages and the suites under `robot/ros2_ws/src`, so use the script rather
+than assembling the command by hand.
 
 ```bash
 .claude/skills/run-checks/check.sh          # tests + compileall + ruff

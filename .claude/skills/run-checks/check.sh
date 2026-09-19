@@ -18,20 +18,29 @@ if ! python3 -c "import rclpy" >/dev/null 2>&1 && [[ -f /opt/ros/jazzy/setup.bas
   set -u
 fi
 
+# Every package that holds an importable Python module, discovered rather than
+# listed: a package added to the workspace is on the path and under test the
+# moment it exists, instead of passing here because nobody remembered to add
+# a line. The glob is sorted, so the run order stays stable.
+PACKAGE_PATHS=()
+for pkg in "$SRC"/*/; do
+  pkg=${pkg%/}
+  # A package directory holding a module directory of the same name is an
+  # importable one; robot_bringup and robot_description hold only launch
+  # files and config, so they are not on the path and never were.
+  [[ -d $pkg/$(basename "$pkg") ]] && PACKAGE_PATHS+=("$pkg")
+done
+PACKAGES=$(IFS=:; echo "${PACKAGE_PATHS[*]}")
+
 # Append, never replace: overwriting PYTHONPATH drops ROS's own site-packages
 # and makes the safety-node tests skip even inside the container.
-export PYTHONPATH=$SRC/robot_core:$SRC/robot_locations:$SRC/robot_navigation:$SRC/robot_safety:$SRC/robot_voice${PYTHONPATH:+:$PYTHONPATH}
+export PYTHONPATH=$PACKAGES${PYTHONPATH:+:$PYTHONPATH}
 
-SUITES=(
-  $SRC/robot_bringup/tests
-  $SRC/robot_core/tests
-  $SRC/robot_description/tests
-  $SRC/robot_locations/tests
-  $SRC/robot_navigation/tests
-  $SRC/robot_safety/tests
-  $SRC/robot_voice/tests
-  web_ui/tests
-)
+SUITES=()
+for d in "$SRC"/*/tests; do
+  [[ -d $d ]] && SUITES+=("$d")
+done
+SUITES+=(web_ui/tests)
 
 rc=0
 what=${1:-all}

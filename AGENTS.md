@@ -57,7 +57,7 @@ measured values before any hardware test.
 From the repository root:
 
 ```bash
-.claude/skills/run-checks/check.sh          # all eight test suites, compileall, ruff
+.claude/skills/run-checks/check.sh          # every test suite, compileall, ruff
 .claude/skills/run-checks/check.sh tests    # suites only (add -v for verbose)
 .claude/skills/run-checks/check.sh lint     # ruff only
 .claude/skills/run-checks/check.sh compile  # compileall only
