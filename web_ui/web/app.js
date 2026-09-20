@@ -23,6 +23,7 @@ const floorMap = document.querySelector("#floor-map");
 const labelForm = document.querySelector("#label-form");
 const labelInput = document.querySelector("#location-label");
 const labelPosition = document.querySelector("#label-position");
+const mapNotice = document.querySelector("#map-notice");
 let mapData;
 let pendingLabel;
 let view = { scale: 1, x: 0, y: 0 };
@@ -133,6 +134,7 @@ function showStatusUnavailable(error) {
 
 const STATUS_POLL_MS = 3000;
 const STATUS_STALE_MS = 10000;
+const MAP_POLL_MS = 2000;
 let polling = false;
 let lastStatusAt = 0;
 
@@ -275,17 +277,41 @@ function updateMapTransform() {
   floorMap.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
 }
 
+// Every part of the map is optional. Connected to a real robot the console
+// may have an occupancy grid and no pose, a pose and no grid, or neither
+// while SLAM is still starting. A missing piece is drawn as missing; none of
+// them may be invented, because an operator reads this picture as where the
+// robot is.
 function renderMap() {
   floorMap.replaceChildren();
   const background = svgElement("rect", { x: 0, y: 0, width: 600, height: 500, class: "map-background" });
   floorMap.append(background);
-  mapData.walls.forEach((wall) => {
+  const image = mapData.image;
+  if (image && image.data_url) {
+    // Placed by its own corners rather than stretched over the viewport: the
+    // bounds can be wider than the grid when a saved location sits off the
+    // mapped area, and a grid stretched to fit would put walls where there
+    // are none.
+    const topLeft = toScreen({ x: image.min_x, y: image.max_y });
+    const bottomRight = toScreen({ x: image.max_x, y: image.min_y });
+    floorMap.append(svgElement("image", {
+      x: topLeft.x, y: topLeft.y,
+      width: Math.max(0, bottomRight.x - topLeft.x),
+      height: Math.max(0, bottomRight.y - topLeft.y),
+      href: image.data_url, class: "map-grid", preserveAspectRatio: "none",
+    }));
+  }
+  (mapData.walls || []).forEach((wall) => {
     const points = wall.map(([x, y]) => { const screen = toScreen({ x, y }); return `${screen.x},${screen.y}`; }).join(" ");
     floorMap.append(svgElement("polyline", { points, class: "map-wall" }));
   });
-  const robot = toScreen(mapData.robot);
-  floorMap.append(svgElement("circle", { cx: robot.x, cy: robot.y, r: 13, class: "robot-marker" }));
-  mapData.locations.forEach((location) => {
+  if (mapData.robot) {
+    const robot = toScreen(mapData.robot);
+    floorMap.append(svgElement("circle", { cx: robot.x, cy: robot.y, r: 13, class: "robot-marker" }));
+  }
+  mapNotice.textContent = mapData.available === false ? (mapData.message || "No map yet.") : "";
+  mapNotice.hidden = !mapNotice.textContent;
+  (mapData.locations || []).forEach((location) => {
     const point = toScreen(location);
     const group = svgElement("g", { class: "map-location", tabindex: 0, role: "button", "aria-label": `Go to ${location.name}` });
     group.append(svgElement("circle", { cx: point.x, cy: point.y, r: 12 }));
@@ -447,4 +473,12 @@ locationForm.addEventListener("submit", async (event) => {
 lastStatusAt = Date.now();
 Promise.all([loadLocations(), loadMap()]).catch(showError);
 setInterval(refreshStatus, STATUS_POLL_MS);
+// Without this a fetch that hangs rather than fails leaves the panel - the
+// latch included - showing its last good reading for as long as the page is
+// open. checkStatusFreshness was written for that and was never scheduled.
+setInterval(checkStatusFreshness, STATUS_POLL_MS);
+// The robot moves, so the pose on the map goes stale between reads. A failed
+// map read keeps the last picture rather than blanking it; the marker is
+// drawn only when the server actually sent a pose.
+setInterval(() => { loadMap().catch(() => {}); }, MAP_POLL_MS);
 setInterval(checkStatusFreshness, STATUS_POLL_MS);
