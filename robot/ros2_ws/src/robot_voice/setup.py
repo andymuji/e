@@ -20,6 +20,8 @@ setup(
     entry_points={
         "console_scripts": [
             "voice_node = robot_voice.voice_node:main",
+            # The sanctioned way to put words on speech_transcript by hand.
+            "say = robot_voice.say:main",
         ],
     },
 )
