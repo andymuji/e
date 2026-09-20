@@ -65,6 +65,35 @@ class GoalDispatcher(Protocol):
     def status(self) -> GoalStatus: ...
 
 
+class SafetyAdapter(Protocol):
+    """The console's view of the safety gate, real or simulated.
+
+    `motion_refusal` is the one the console acts on, and it answers "may this
+    console ask for motion" rather than "is the latch down". An adapter that
+    has not heard from the gate answers with a reason, because a console that
+    cannot see the latch must not dispatch a trip. `status()` carries the
+    nuance for display and may report the latch as None, which the page
+    renders as "unknown" rather than as released.
+    """
+
+    @property
+    def emergency_stop_engaged(self) -> bool: ...
+
+    def motion_refusal(self) -> str | None: ...
+
+    def engage_emergency_stop(self) -> None: ...
+
+    def reset_emergency_stop(self) -> None: ...
+
+    def status(self) -> dict[str, Any]: ...
+
+
+class MapProvider(Protocol):
+    """Where the floor plan comes from: invented, or a real occupancy grid."""
+
+    def map_data(self, locations: list[dict[str, Any]]) -> dict[str, Any]: ...
+
+
 class DemoGoalDispatcher:
     """In-memory adapter used until this boundary is connected to Nav2."""
 
@@ -135,6 +164,12 @@ class SafetyScenarioAdapter:
     def emergency_stop_engaged(self) -> bool:
         return self._controller.emergency_stop_engaged
 
+    def motion_refusal(self) -> str | None:
+        """The local controller always knows its own latch, so this is it."""
+        if self._controller.emergency_stop_engaged:
+            return "the emergency stop is engaged"
+        return None
+
     def status(self) -> dict[str, Any]:
         distance, reading_age, command_age = self.SCENARIOS[self._scenario]
         decision = self._controller.evaluate(distance, reading_age, command_age)
@@ -150,18 +185,52 @@ class SafetyScenarioAdapter:
         }
 
 
+class DemoMapProvider:
+    """A floor plan with no robot behind it, for the local console.
+
+    The walls and the robot pose are placeholders and describe no room that
+    exists. A provider backed by a SLAM map supplies the same contract, which
+    is why this is a separate object rather than a method on the app.
+    """
+
+    def map_data(self, locations: list[dict[str, Any]]) -> dict[str, Any]:
+        max_x = max((float(item["x"]) for item in locations), default=5.0)
+        max_y = max((float(item["y"]) for item in locations), default=4.0)
+        return {
+            "available": True,
+            "message": "Demonstration floor plan: no robot is connected.",
+            "bounds": {
+                "min_x": 0.0,
+                "min_y": 0.0,
+                "max_x": max(6.0, max_x + 1.0),
+                "max_y": max(5.0, max_y + 1.0),
+            },
+            "walls": [
+                [[0.4, 0.4], [5.6, 0.4], [5.6, 4.6], [0.4, 4.6], [0.4, 0.4]],
+                [[3.1, 0.4], [3.1, 1.55]],
+                [[3.1, 2.25], [3.1, 4.6]],
+                [[0.4, 2.55], [1.35, 2.55]],
+                [[2.1, 2.55], [3.1, 2.55]],
+            ],
+            "robot": {"x": 0.85, "y": 0.9, "yaw": 0.0},
+            "locations": locations,
+        }
+
+
 class RobotWebApp:
     def __init__(
         self,
         location_store: LocationStore,
         dispatcher: GoalDispatcher,
-        safety: SafetyScenarioAdapter | None = None,
+        safety: SafetyAdapter | None = None,
         gateway: CommandGateway | None = None,
+        map_provider: MapProvider | None = None,
     ):
         self.location_store = location_store
         self.dispatcher = dispatcher
         self.safety = safety or SafetyScenarioAdapter()
         self.gateway = gateway or CommandGateway(location_store)
+        self.map_provider = map_provider or DemoMapProvider()
         # The server is threaded, so two operator requests can reach the
         # store at once. Reentrant because the mutating calls report the new
         # list by calling locations() while still holding it.
@@ -218,33 +287,8 @@ class RobotWebApp:
             }
 
     def map_data(self) -> dict[str, Any]:
-        """Build a small floor-plan view from operator-approved map poses.
-
-        This deterministic adapter is intentionally local and replaceable: a
-        SLAM map provider can later supply the same map contract without
-        changing the UI. The walls and the robot pose below are placeholders
-        and describe no room that exists.
-        """
-        locations = self.locations()["locations"]
-        max_x = max((float(item["x"]) for item in locations), default=5.0)
-        max_y = max((float(item["y"]) for item in locations), default=4.0)
-        return {
-            "bounds": {
-                "min_x": 0.0,
-                "min_y": 0.0,
-                "max_x": max(6.0, max_x + 1.0),
-                "max_y": max(5.0, max_y + 1.0),
-            },
-            "walls": [
-                [[0.4, 0.4], [5.6, 0.4], [5.6, 4.6], [0.4, 4.6], [0.4, 0.4]],
-                [[3.1, 0.4], [3.1, 1.55]],
-                [[3.1, 2.25], [3.1, 4.6]],
-                [[0.4, 2.55], [1.35, 2.55]],
-                [[2.1, 2.55], [3.1, 2.55]],
-            ],
-            "robot": {"x": 0.85, "y": 0.9, "yaw": 0.0},
-            "locations": locations,
-        }
+        """Draw the floor plan the configured provider knows about."""
+        return self.map_provider.map_data(self.locations()["locations"])
 
     def remove_location(self, name: str) -> dict[str, Any]:
         name = _text_field(name, "name")
@@ -280,7 +324,13 @@ class RobotWebApp:
 
     def set_safety_scenario(self, scenario: str) -> dict[str, Any]:
         scenario = _text_field(scenario, "scenario")
-        if scenario not in self.safety.SCENARIOS:
+        scenarios = getattr(self.safety, "SCENARIOS", None)
+        if scenarios is None:
+            # Pointed at a real gate there are no scenarios to pick: the
+            # sensors decide. Refusing here keeps a stale demo button from
+            # looking like it changed something about the robot.
+            raise BadRequest("this console is connected to a robot: no demo scenarios")
+        if scenario not in scenarios:
             raise BadRequest(f"unknown safety scenario: {scenario}")
         self.safety.set_scenario(scenario)
         # The same envelope every other endpoint returns. It used to answer
@@ -292,17 +342,32 @@ class RobotWebApp:
         location_name = _text_field(location_name, "location_name")
         # Checked before the lookup, so an engaged stop is reported as the
         # reason for refusing rather than being masked by a bad name.
-        self._refuse_while_stopped()
+        self._refuse_motion()
         with self._store_lock:
             goal = self.location_store.get_goal(location_name)
             goal_id = self.dispatcher.send_goal(goal)
         return {"goal_id": goal_id, "location_name": goal.location_name}
 
-    def _refuse_while_stopped(self) -> None:
-        if self.safety.emergency_stop_engaged:
-            raise RuntimeError(
-                "the emergency stop is engaged: reset it before sending a goal"
-            )
+    def _motion_refusal(self) -> str | None:
+        """Why this console will not ask for motion right now, if it will not.
+
+        Asked of the adapter rather than derived from the latch, because an
+        adapter connected to a real gate has a third answer: it has not heard
+        from the gate and so cannot say the latch is released.
+        """
+        describe = getattr(self.safety, "motion_refusal", None)
+        if describe is not None:
+            return describe()
+        return (
+            "the emergency stop is engaged"
+            if self.safety.emergency_stop_engaged
+            else None
+        )
+
+    def _refuse_motion(self) -> None:
+        reason = self._motion_refusal()
+        if reason is not None:
+            raise RuntimeError(f"{reason}: the goal was not sent")
 
     def handle_voice_command(self, transcript: str) -> dict[str, Any]:
         transcript = _text_field(transcript, "transcript")
@@ -320,11 +385,9 @@ class RobotWebApp:
             if status.state == "navigating" and status.goal_id is not None:
                 self.dispatcher.cancel_goal(status.goal_id)
         elif outcome.action == "go_to":
-            if self.safety.emergency_stop_engaged:
-                return {
-                    "action": "refused",
-                    "response": "I cannot move: the emergency stop is engaged.",
-                }
+            refusal = self._motion_refusal()
+            if refusal is not None:
+                return {"action": "refused", "response": f"I cannot move: {refusal}."}
             result["goal_id"] = self.dispatcher.send_goal(outcome.goal)
             result["location_name"] = outcome.goal.location_name
         elif outcome.action == "report_location":

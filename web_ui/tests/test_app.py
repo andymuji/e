@@ -492,6 +492,105 @@ class RobotHttpApiTests(unittest.TestCase):
         self.assertIn("error", payload)
 
 
+class ConnectedAdapter:
+    """A safety adapter shaped like one wired to a real gate.
+
+    No SCENARIOS and a refusal that is not the latch: the two things a demo
+    adapter never has, and the two the console has to cope with. Deliberately
+    a plain object, so nothing in web_ui/tests needs rclpy.
+    """
+
+    def __init__(self, refusal: str | None = None) -> None:
+        self.refusal = refusal
+
+    @property
+    def emergency_stop_engaged(self) -> bool:
+        return self.refusal is not None
+
+    def motion_refusal(self) -> str | None:
+        return self.refusal
+
+    def engage_emergency_stop(self) -> None:
+        self.refusal = "the emergency stop is engaged"
+
+    def reset_emergency_stop(self) -> None:
+        self.refusal = None
+
+    def status(self) -> dict:
+        return {"state": "unknown", "reason": "no gate here", "emergency_stop": None}
+
+
+class FlatMapProvider:
+    def __init__(self) -> None:
+        self.asked_with = None
+
+    def map_data(self, locations):
+        self.asked_with = locations
+        return {"available": False, "walls": [], "robot": None, "locations": locations}
+
+
+class PluggedInAdapterTests(unittest.TestCase):
+    """The seams the ROS adapters plug into, exercised without ROS."""
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        store = LocationStore(Path(self.directory.name) / "locations.json")
+        store.save_location("Kitchen", Pose2D(1.0, 2.0))
+        self.safety = ConnectedAdapter()
+        self.map_provider = FlatMapProvider()
+        self.app = RobotWebApp(
+            store,
+            DemoGoalDispatcher(),
+            safety=self.safety,
+            map_provider=self.map_provider,
+        )
+
+    def tearDown(self) -> None:
+        self.directory.cleanup()
+
+    def test_the_map_comes_from_the_provider_with_the_approved_places(self) -> None:
+        payload = self.app.map_data()
+
+        self.assertFalse(payload["available"])
+        self.assertEqual(self.map_provider.asked_with[0]["name"], "kitchen")
+
+    def test_an_adapter_with_no_scenarios_refuses_the_demo_control(self) -> None:
+        with self.assertRaises(BadRequest):
+            self.app.set_safety_scenario("clear")
+
+    def test_the_adapters_own_reason_is_what_refuses_a_goal(self) -> None:
+        # Not the latch: an adapter that cannot see the gate refuses for a
+        # different reason, and saying "the stop is engaged" would send an
+        # operator to look at the wrong thing.
+        self.safety.refusal = "the safety gate has not reported its state"
+
+        with self.assertRaises(RuntimeError) as caught:
+            self.app.send_goal("kitchen")
+
+        self.assertIn("has not reported its state", str(caught.exception))
+
+    def test_a_voice_command_is_refused_for_the_adapters_reason(self) -> None:
+        self.safety.refusal = "the safety gate has not reported its state"
+
+        result = self.app.handle_voice_command("take me to the kitchen")
+
+        self.assertEqual(result["action"], "refused")
+        self.assertIn("has not reported its state", result["response"])
+
+    def test_a_goal_goes_through_once_nothing_refuses_it(self) -> None:
+        result = self.app.send_goal("kitchen")
+
+        self.assertEqual(result["location_name"], "kitchen")
+
+    def test_the_demo_adapters_stay_the_default(self) -> None:
+        # web_ui has to keep running with no ROS installed, so an app built
+        # without adapters gets the local ones.
+        app = RobotWebApp(self.app.location_store, DemoGoalDispatcher())
+
+        self.assertIsInstance(app.safety, SafetyScenarioAdapter)
+        self.assertTrue(app.map_data()["walls"])
+
+
 class ConsoleMarkupTests(unittest.TestCase):
     """What the console asserts before it has heard from the robot.
 
