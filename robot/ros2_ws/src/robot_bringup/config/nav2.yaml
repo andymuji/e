@@ -30,6 +30,18 @@ amcl:
     robot_model_type: "nav2_amcl::DifferentialMotionModel"
     tf_broadcast: true
     transform_tolerance: 1.0
+    # Start localized at the pose simulation.launch.py spawns the robot at,
+    # so the stack comes up usable without RViz. This is only correct because
+    # the committed map is rendered from the world file and so shares the
+    # Gazebo world frame; a map built by driving is anchored at wherever the
+    # robot started, where the same robot begins at the origin instead.
+    # RViz's "2D Pose Estimate" overrides whatever is set here.
+    set_initial_pose: true
+    initial_pose:
+      x: -2.0
+      y: -1.5
+      z: 0.0
+      yaw: 0.0
 
 map_server:
   ros__parameters:
