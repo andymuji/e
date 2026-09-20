@@ -126,6 +126,16 @@ class RobotWebAppTests(unittest.TestCase):
         self.assertEqual(result["action"], "stop")
         self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
 
+    def test_a_mangled_stop_cancels_the_trip_too(self) -> None:
+        # "sto" is what an engine makes of a shouted stop. Answering it
+        # politely while the robot kept driving would be the worst outcome.
+        self.app.send_goal("kitchen")
+
+        result = self.app.handle_voice_command("sto")
+
+        self.assertEqual(result["action"], "halt")
+        self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
+
     def test_voice_stop_is_safe_when_nothing_is_moving(self) -> None:
         result = self.app.handle_voice_command("stop")
 

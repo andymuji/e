@@ -50,6 +50,11 @@ from robot_console.map_provider import (
 from robot_console.safety_adapter import RosSafetyAdapter
 from robot_console.web_console import WEB_ROOT, RobotWebApp, make_handler
 
+# Matches robot_safety.safety_node.STATE_QOS. Imported rather than restated
+# would couple this package's import to rclpy being present in the gate's
+# package; the shape is two lines and the gate's comment explains the why.
+STATE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
 # map_server latches the map: one message, kept for whoever subscribes later.
 # A volatile subscription to it simply never receives anything.
 MAP_QOS = QoSProfile(
@@ -129,8 +134,16 @@ class ConsoleNode(Node):
             timeout=safety_timeout,
             logger=self.get_logger(),
         )
+        # The gate keeps its last state for late joiners, so a console opened
+        # onto a quiet robot learns what the gate is doing the moment it
+        # subscribes rather than waiting for the next change. Asking for
+        # volatile here would throw that kept line away.
         self.create_subscription(
-            String, "safety_state", self._on_safety_state, 10, callback_group=callbacks
+            String,
+            "safety_state",
+            self._on_safety_state,
+            STATE_QOS,
+            callback_group=callbacks,
         )
         # Subscribed to, never published to: the gate's velocity output runs
         # every control cycle and is the only thing that says the gate is

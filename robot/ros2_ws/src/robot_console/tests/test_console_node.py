@@ -15,7 +15,7 @@ try:
     import rclpy
     from rclpy.executors import SingleThreadedExecutor
     from rclpy.parameter import Parameter
-    from robot_console.console_node import MAP_QOS, ConsoleNode
+    from robot_console.console_node import MAP_QOS, STATE_QOS, ConsoleNode
     from robot_console.map_provider import (
         pose_from_transform,
         snapshot_from_message,
@@ -129,7 +129,10 @@ class ConsoleNodeTests(unittest.TestCase):
         self.assertIn("/emergency_stop_reset", published)
 
     def test_the_status_follows_the_gates_own_topic(self) -> None:
-        state = self.listener.create_publisher(String, "safety_state", 10)
+        # STATE_QOS on both ends, as the gate publishes it: the console asks
+        # for the gate's kept last state, and a publisher that does not keep
+        # one is not a match at all - it would deliver nothing, silently.
+        state = self.listener.create_publisher(String, "safety_state", STATE_QOS)
         state.publish(String(data="caution: obstacle inside caution distance"))
         self.spin()
         self.node.safety.on_heartbeat()

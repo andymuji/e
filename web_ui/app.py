@@ -383,7 +383,10 @@ class RobotWebApp:
         result: dict[str, Any] = {"action": outcome.action, "response": outcome.response}
         status = self.dispatcher.status()
 
-        if outcome.action == "stop":
+        if outcome.action in ("stop", "halt"):
+            # A halt is a stop the recogniser mangled - "sto", "hal". It drops
+            # the trip exactly as a stop does; what it does not do is ask for
+            # the latch, which is the gateway's decision, not this console's.
             if status.state == "navigating" and status.goal_id is not None:
                 self.dispatcher.cancel_goal(status.goal_id)
         elif outcome.action == "go_to":

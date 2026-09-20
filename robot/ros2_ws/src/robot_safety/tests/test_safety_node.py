@@ -1,3 +1,4 @@
+import time
 import unittest
 
 try:
@@ -8,9 +9,9 @@ try:
     )
     import rclpy
     from robot_safety.safety_controller import SafetyController
-    from robot_safety.safety_node import SafetyNode
+    from robot_safety.safety_node import STATE_QOS, SafetyNode
     from sensor_msgs.msg import BatteryState, LaserScan
-    from std_msgs.msg import Bool
+    from std_msgs.msg import Bool, String
     from tf2_msgs.msg import TFMessage
 
     ROS_AVAILABLE = True
@@ -114,6 +115,33 @@ class SafetyNodeTests(unittest.TestCase):
         self.node._publish_safe_velocity()
 
         self.assertEqual(self.published.messages[-1].linear.x, 0.0)
+
+    def test_a_late_subscriber_is_told_the_state_it_missed(self) -> None:
+        """A console opened onto a quiet robot must not be left guessing.
+
+        The gate reports its state only when that state changes, so on a
+        settled robot the topic is silent for minutes. Without the kept last
+        message, anything that subscribes in that quiet - a console, a
+        recorder, an operator's echo - sees nothing and has to fail closed to
+        "unknown" on a robot that is working perfectly well.
+        """
+        self.node._publish_safe_velocity()
+        self.assertIsNotNone(self.node._last_status)
+
+        heard = []
+        listener = rclpy.create_node("late_console")
+        try:
+            listener.create_subscription(
+                String, "safety_state", lambda message: heard.append(message.data),
+                STATE_QOS,
+            )
+            deadline = time.monotonic() + 5.0
+            while not heard and time.monotonic() < deadline:
+                rclpy.spin_once(listener, timeout_sec=0.1)
+        finally:
+            listener.destroy_node()
+
+        self.assertEqual(heard, [self.node._last_status])
 
 
 @unittest.skipUnless(ROS_AVAILABLE, "ROS 2 Python dependencies are unavailable")

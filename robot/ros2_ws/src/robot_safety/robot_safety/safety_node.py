@@ -5,12 +5,25 @@ import math
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, LaserScan
 from std_msgs.msg import Bool, String
 from tf2_msgs.msg import TFMessage
 
 from robot_safety.safety_controller import SafetyController
+
+# The gate says what it is doing only when that changes, so on a settled robot
+# this topic is silent for minutes and a subscriber that arrives in the quiet
+# hears nothing at all. Keeping the last line lets a console or a recorder
+# learn the current state on arrival instead of waiting for the next thing to
+# go wrong. The subscriber has to ask for it: a volatile subscription is still
+# told nothing, which is why `ros2 topic echo` needs
+# `--qos-durability transient_local` to see a quiet gate.
+#
+# The state is kept, not the liveness: a dead publisher delivers nothing, so
+# this cannot hand anyone a state from a gate that has stopped running. What
+# proves the loop is still running is cmd_vel, which goes out every cycle.
+STATE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
 
 
 def _optional(value: float) -> float | None:
@@ -80,7 +93,9 @@ class SafetyNode(Node):
         self._battery_fraction = None
 
         self._velocity_publisher = self.create_publisher(Twist, "cmd_vel", 10)
-        self._state_publisher = self.create_publisher(String, "safety_state", 10)
+        self._state_publisher = self.create_publisher(
+            String, "safety_state", STATE_QOS
+        )
         self.create_subscription(Twist, "cmd_vel_requested", self._on_velocity, 10)
         self.create_subscription(
             LaserScan, "scan", self._on_scan, qos_profile_sensor_data
