@@ -27,12 +27,14 @@ palette: **Dev Containers: Rebuild Container**).
 
 ## Packages
 
-- `robot_bringup` - launch files, parameters, simulation worlds
+- `robot_bringup` - launch files, parameters, simulation worlds, the test-room map
+- `robot_console` - the operator console (`web_ui`) served against a live ROS graph
 - `robot_core`
 - `robot_description` - URDF/xacro, RViz config
 - `robot_locations`
 - `robot_navigation`
 - `robot_safety`
+- `robot_telemetry` - records a run, and checks the recording against the safety rules
 - `robot_voice`
 
 The URDF dimensions are placeholders. Nav2 footprints, inflation radii, and the
@@ -47,6 +49,9 @@ measured values before any hardware test.
 - Loss of the command stream is a stop condition, not a reason to hold the last velocity. Both `sensor_timeout` and `command_timeout` fail closed.
 - Do not run hardware tests without the documented tether, exclusion zone, and second operator.
 - Do not connect another node directly to the motor controller's velocity input.
+- `robot_telemetry` only listens. It publishes nothing - never a velocity, never `emergency_stop_reset`. A recorder that can act is no longer a witness.
+- The operator console may request destinations and work the *software* stop. It never publishes a velocity, and the physical stop is independent of it.
+- Nothing in `robot_voice` publishes `emergency_stop_reset`. A voice that can undo a stop is not a stop.
 - Motion path: `/cmd_vel_requested` -> `robot_safety` -> `/cmd_vel` -> driver or Gazebo DiffDrive. Nothing else publishes `/cmd_vel`.
 - Nav2 is a motion source, not a motion authority. Every Nav2 node that can emit a velocity has `cmd_vel` remapped to `cmd_vel_requested`, including `behavior_server`: its recovery behaviours drive the robot, and they run when something has already gone wrong.
 - The safety gate is never put under lifecycle management. The lifecycle manager deactivates its nodes on failure, and the gate has to still be running then.
@@ -79,6 +84,16 @@ source install/setup.bash
 
 Run the simulation with `ros2 launch robot_bringup simulation.launch.py`, and
 drive it from a second terminal with `ros2 launch robot_bringup teleop.launch.py`.
-Map with `slam.launch.py`, then navigate a saved map with
-`navigation.launch.py map:=...`. The SLAM and Nav2 configuration has not been
-run against the simulator yet; treat the first run as bring-up.
+Where there is no display, add `rviz:=false headless:=true`. Map with
+`slam.launch.py` (`navigation.launch.py slam:=true` navigates on the map as it
+is being built), then navigate with `navigation.launch.py`, which now defaults
+to the committed `test_room` map.
+
+That map is generated from the world file, not driven: it has the same status
+as the placeholder URDF dimensions and for the same reason. **No robot has yet
+driven to a goal, in simulation or anywhere else.** The stack comes up, the
+graph is correct, and the first goal-reaching run is still bring-up work.
+
+Set `ROS_DOMAIN_ID` when more than one person or agent is working: ROS
+defaults to a shared domain, and a stray node from another workspace shows up
+in your topic graph as if it were yours.

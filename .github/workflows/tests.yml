@@ -44,11 +44,13 @@ jobs:
         with:
           package-name: >-
             robot_bringup
+            robot_console
             robot_core
             robot_description
             robot_locations
             robot_navigation
             robot_safety
+            robot_telemetry
             robot_voice
           target-ros2-distro: jazzy
           import-token: ${{ secrets.GITHUB_TOKEN }}

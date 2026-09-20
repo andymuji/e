@@ -124,3 +124,43 @@ around the permission.
   mangled stop typed into the console answers correctly but does not cancel
   the trip. One `elif` beside the existing `stop` branch. Left undone here
   only because agent 5 is editing that file.
+
+## Second fan-out: outcome
+
+All four merged; `check.sh: PASSED` with ten suites, `colcon build` clean on
+nine packages. Two defects the agents found in code they could not touch were
+fixed by the integrator and are covered by tests:
+
+- `safety_state` was published change-only and volatile, so anything
+  subscribing to a settled robot heard nothing and failed closed to "unknown".
+  Now transient-local depth 1; the test fails against the old publisher.
+- A mangled "stop" - what a real recogniser makes of the word - was a refusal,
+  and a refusal does not cancel a trip. Now a `halt`: trip cancelled, latch
+  untouched.
+- The gate also ended every Ctrl-C with a traceback and a non-zero status.
+
+### What the worktrees got wrong
+
+Every one of the four agents was given a worktree cut from `11c67d3`, roughly
+twenty commits behind the branch tip, rather than from HEAD. Agent 8 could not
+recover (its attempts to fast-forward were denied) and shipped code it could
+never build; the other three each found a different way to the right commit
+and lost time doing it. **Check the base commit of every worktree before
+dispatching the next round.**
+
+Agent 7 also reports that the harness instructs agents to prefer `sed` and
+heredocs for edits, which is exactly the bypass in the "Known gap" above, and
+that the scratchpad is shared between parallel agents - one agent overwrote
+another's helper script mid-run. Give agents uniquely named scratch files and
+tell them to use Write/Edit.
+
+### Still open
+
+- **Nothing has navigated.** The mapping drive and the goal-reaching run were
+  blocked: the documented procedure needs `simulation.launch.py safety:=false`
+  (so the simulation gate and the stricter navigation gate do not stack on
+  `/cmd_vel`), and the permission system refuses that argument as weakening
+  safety. Agent 6 did not route around it, which was right. This needs the
+  user's decision, not an agent's.
+- No recording has been made of a full simulation run, so `robot_telemetry`
+  has never read `/map`, `/amcl_pose` or `/tf` in anger - only counted them.

@@ -179,10 +179,20 @@ than as unit-tested logic.
 
 SLAM Toolbox, AMCL, and Nav2 are now configured and launchable
 (`slam.launch.py`, `navigation.launch.py`), with Nav2 wired as a motion
-source behind the gate rather than as a motion authority. That configuration
-is checked for internal consistency by the test suite but has not been run
-against the simulator yet, because CI here has no Gazebo. The first run is
-bring-up work, not a regression test.
+source behind the gate rather than as a motion authority. The stack has now
+been brought up against the simulator twice, and the second run checked the
+claim this project rests on against a *running* system for the first time:
+`/cmd_vel`, the topic that reaches the wheels, had exactly one publisher, and
+it was the safety gate. Both Nav2 nodes that can drive published only to the
+request topic, and `behavior_server` turned out to have three such publishers
+rather than one - one per recovery behaviour, all correctly remapped.
+
+`navigation.launch.py` now defaults to a committed map of the test room. That
+map is rendered from the world file rather than driven, and carries the same
+"placeholder until measured" status as the URDF dimensions. **No robot has
+driven to a goal yet**, in simulation or anywhere else; AMCL and the DWB
+critics are untuned because there has been no run to tune them from. CI still
+has no Gazebo, so none of this is a regression test.
 
 The URDF describes a plausible indoor base, not a robot anyone owns. Its
 dimensions are placeholders, and Nav2 footprints, inflation radii, and the
@@ -214,6 +224,9 @@ placeholder URDF.
 - `robot_navigation` provides a deterministic grid planner for simulator and integration tests, including obstacle detours, replanning, and no-path errors.
 - `robot_description` and `robot_bringup` provide the simulated robot, the test world, and the launch wiring, with tests that assert the safety topology rather than only the geometry.
 - `robot_safety` additionally treats localization failure and a flat battery as stop conditions, off until the robot has those inputs to lose.
+- `robot_console` serves that console against a live ROS graph: destinations become Nav2 goals, the STOP button works the gate's real latch, and the floor plan is the map the robot actually has. The light on the page follows the gate's own reports, not the button that was pressed.
+- `robot_telemetry` records a run and then checks the recording: every safety-state change with the gate's reason, how long the robot took to be told "zero" after a close scan and after an emergency stop, whether anything but the gate published `/cmd_vel`, and whether the wheels ever turned while the gate said stop. It exits non-zero when a rule was broken, which is what makes an attached recording evidence rather than a claim; a check the run never exercised reports `NOT EXERCISED`, which is deliberately not a pass. It publishes nothing at all - a recorder that can act is no longer a witness.
+- `ros2 run robot_voice say "go to the kitchen"` puts words on `speech_transcript` by hand, so the whole voice path runs with no microphone. [ADR 0002](docs/decisions/0002-voice-provider.md) records why no speech engine is chosen yet and what would settle it.
 - `.github/workflows/tests.yml` lints, runs all unit tests, compiles the Python, and builds the ROS packages on Jazzy, on pushes and pull requests.
 
 These modules are deliberately independent of ROS 2 so the behavior can be tested in this repository. They are not a replacement for SLAM Toolbox, AMCL, Nav2, Collision Monitor, a speech-to-text engine, or physical safety hardware.
