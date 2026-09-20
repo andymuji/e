@@ -101,6 +101,8 @@ class VoiceNode(Node):
 
         if outcome.action == "stop":
             self._stop()
+        elif outcome.action == "halt":
+            self._halt()
         elif outcome.action == "go_to":
             response = self._start_trip(outcome.goal, response)
         elif outcome.action == "report_location":
@@ -155,6 +157,19 @@ class VoiceNode(Node):
         if self._stop_engages_emergency_stop:
             self._emergency_stop_publisher.publish(Bool(data=True))
 
+        self._abandon_trip()
+
+    def _halt(self) -> None:
+        """A stop the recogniser mangled: drop the trip, leave the latch alone.
+
+        "sto" and "hal" are what a real engine makes of someone shouting stop,
+        and a refusal would leave a moving robot moving. Cancelling the trip
+        stops it without the latch, which takes an operator to release: a
+        robot stranded by a misheard syllable cannot fetch help either.
+        """
+        self._abandon_trip()
+
+    def _abandon_trip(self) -> None:
         self._trip_wanted = False
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()

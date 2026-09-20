@@ -1,12 +1,26 @@
 """Resolve parsed voice intents into approved goals or spoken refusals."""
 
 from dataclasses import dataclass
-import re
 
 from robot_core import NavigationGoal
 from robot_locations import LocationStore
 
-from robot_voice.intent_parser import VoiceIntentParser
+from robot_voice.intent_parser import VoiceIntentParser, normalize_transcript
+
+# A stop word heard whole. Matched anywhere in the transcript rather than as a
+# whole utterance, so a partially recognised sentence still stops the robot.
+# This deliberately stops on phrases like "do not stop": a needless stop is a
+# nuisance, a missed one is a hazard.
+_STOP_WORDS = frozenset({"stop", "halt", "emergency", "freeze"})
+
+# A stop word the engine mangled, and the words people shout at a moving robot
+# when a clean "stop" does not come out. A real engine truncates: "sto", "hal".
+# These stop the wheels without latching the emergency stop, because the latch
+# takes an operator to release and a robot stranded by a misheard syllable is
+# its own hazard - it cannot go and fetch anyone either.
+_UNCERTAIN_STOP_WORDS = frozenset(
+    {"sto", "stp", "stah", "stahp", "hal", "hold", "wait", "whoa", "woah"}
+)
 
 
 @dataclass(frozen=True)
@@ -18,12 +32,6 @@ class CommandOutcome:
 
 class CommandGateway:
     """Turn a transcript into an approved navigation goal, a stop, or a refusal."""
-
-    # Matched anywhere in the transcript rather than as a whole utterance, so a
-    # partially recognised sentence still stops the robot. This deliberately
-    # stops on phrases like "do not stop": a needless stop is a nuisance, a
-    # missed one is a hazard.
-    _stop_word = re.compile(r"\b(?:stop|halt)\b")
 
     def __init__(
         self,
@@ -45,8 +53,19 @@ class CommandGateway:
                 ) from error
 
     def handle(self, transcript: str) -> CommandOutcome:
-        if self._stop_word.search(transcript.lower()):
+        # Judged on the same cleaned-up text the parser sees, so the stop check
+        # and the destination check cannot disagree about what was said.
+        spoken = set(normalize_transcript(transcript).split())
+
+        if spoken & _STOP_WORDS:
             return CommandOutcome("stop", "Stopping now.")
+        if spoken & _UNCERTAIN_STOP_WORDS:
+            # Not confident enough to latch, far too confident to keep driving.
+            return CommandOutcome(
+                "halt",
+                "I think you asked me to stop, so I have. "
+                "Say stop if you want me to stay stopped.",
+            )
 
         intent = self._parser.parse(transcript)
 

@@ -105,3 +105,22 @@ Same invariants as the first round, plus: `ros2 topic pub` and
 `ros2 service call` are denied by repo policy, so an agent that needs the
 robot to move asks Nav2 for a goal rather than routing around the gate or
 around the permission.
+
+## Integration notes
+
+- Agent 8 (voice) merged. Its worktree was cut from `11c67d3` rather than the
+  branch tip and its sandbox refused `source /opt/ros/jazzy/setup.bash`, so it
+  could not build or run anything. The integrator did that verification:
+  `colcon build` clean, and a live `voice_node` + `say` run confirming an
+  approved destination reaches the goal attempt, an unapproved one is refused,
+  and a heard stop publishes the latch.
+- The gap it found and could not fix is fixed here: a stop word the engine
+  mangled ("sto", "hal", "wait") was a refusal, and a refusal does not cancel
+  a trip already running. It is now a `halt` outcome - trip cancelled, latch
+  untouched - in `command_gateway.py` and `voice_node.py`, recorded in ADR
+  0002.
+- **Owed to `web_ui/app.py` when agent 5 merges**: `_handle_voice_command`
+  dispatches on the outcome action and does not know about `halt`, so a
+  mangled stop typed into the console answers correctly but does not cancel
+  the trip. One `elif` beside the existing `stop` branch. Left undone here
+  only because agent 5 is editing that file.

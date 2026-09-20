@@ -50,6 +50,20 @@ class CommandGatewayTests(unittest.TestCase):
     def test_negated_stop_still_stops(self) -> None:
         self.assertEqual(self.gateway.handle("do not stop").action, "stop")
 
+    def test_a_truncated_stop_halts_without_asking_for_the_latch(self) -> None:
+        # What an engine makes of someone shouting stop at a moving robot.
+        for transcript in ("sto", "hal", "whoa", "wait", "hold on", "stahp"):
+            with self.subTest(transcript=transcript):
+                outcome = self.gateway.handle(transcript)
+                self.assertEqual(outcome.action, "halt")
+                self.assertIsNone(outcome.goal)
+
+    def test_a_truncated_stop_never_becomes_a_destination(self) -> None:
+        self.assertEqual(self.gateway.handle("go to the sto").action, "halt")
+
+    def test_a_whole_stop_word_still_wins_over_a_mangled_one(self) -> None:
+        self.assertEqual(self.gateway.handle("wait stop").action, "stop")
+
     def test_stop_wins_over_a_destination_in_the_same_transcript(self) -> None:
         outcome = self.gateway.handle("go to the kitchen no stop")
 

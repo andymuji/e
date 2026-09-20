@@ -201,6 +201,19 @@ class VoiceNodeTests(unittest.TestCase):
         self.assertEqual(self.navigator.sent, [])
         self.assertEqual(self.emergency_stops(), [True])
 
+    def test_a_mangled_stop_cancels_the_trip_without_latching(self) -> None:
+        self.speak("go to the kitchen")
+        self.navigator.futures[0].answer()
+
+        self.speak("sto")
+
+        # The wheels stop because the trip is gone, not because the latch
+        # engaged: releasing that takes an operator walking over to the robot.
+        self.assertTrue(self.navigator.goal_handle().cancelled)
+        self.assertIsNone(self.node._goal_handle)
+        self.assertEqual(self.emergency_stops(), [])
+        self.assertIn("I think you asked me to stop", self.last_response())
+
     def test_a_stop_while_nav2_is_still_accepting_still_cancels(self) -> None:
         self.speak("go to the kitchen")
         self.speak("stop")
