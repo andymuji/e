@@ -17,6 +17,7 @@ import yaml
 SHARE = Path(__file__).resolve().parents[1]
 CONFIG = SHARE / "config"
 LAUNCH = SHARE / "launch"
+MAPS = SHARE / "maps"
 WORLDS = SHARE / "worlds"
 DESCRIPTION_URDF = SHARE.parent / "robot_description" / "urdf"
 XACRO_NS = "http://www.ros.org/wiki/xacro"
@@ -336,6 +337,193 @@ class LaunchFileTests(unittest.TestCase):
         self.assertIn('("/cmd_vel", "/cmd_vel_requested")', self.teleop)
 
 
+def read_pgm(path: Path) -> tuple[int, int, bytes]:
+    """The width, height and pixels of a binary (P5) portable greymap."""
+    data = path.read_bytes()
+    fields: list[bytes] = []
+    offset = 0
+    while len(fields) < 4:
+        while data[offset : offset + 1].isspace():
+            offset += 1
+        if data[offset : offset + 1] == b"#":  # A comment runs to end of line.
+            offset = data.index(b"\n", offset) + 1
+            continue
+        end = offset
+        while not data[end : end + 1].isspace():
+            end += 1
+        fields.append(data[offset:end])
+        offset = end
+    width, height = int(fields[1]), int(fields[2])
+    return width, height, data[offset + 1 :]
+
+
+class MapTests(unittest.TestCase):
+    """The map navigation.launch.py defaults to has to exist and be loadable.
+
+    Without a committed map the default is a path to nothing: Nav2 comes up,
+    map_server fails to activate, and the whole lifecycle group stays down.
+    """
+
+    def setUp(self) -> None:
+        self.yaml_path = MAPS / "test_room.yaml"
+        self.map = yaml.safe_load(self.yaml_path.read_text())
+        self.image = MAPS / self.map["image"]
+        self.width, self.height, self.pixels = read_pgm(self.image)
+
+    def test_the_committed_map_and_its_image_are_both_present(self) -> None:
+        self.assertTrue(self.yaml_path.is_file())
+        self.assertTrue(self.image.is_file())
+
+        # A bare filename, so the pair can be copied or installed together.
+        self.assertEqual(self.map["image"], self.image.name)
+
+    def test_the_map_declares_what_map_server_needs(self) -> None:
+        self.assertLessEqual(
+            {"image", "resolution", "origin", "negate", "occupied_thresh",
+             "free_thresh"},
+            set(self.map),
+        )
+        self.assertGreater(self.map["resolution"], 0.0)
+        self.assertEqual(len(self.map["origin"]), 3)
+        self.assertLess(self.map["free_thresh"], self.map["occupied_thresh"])
+
+    def test_the_image_holds_the_pixels_the_header_promises(self) -> None:
+        self.assertGreaterEqual(len(self.pixels), self.width * self.height)
+
+    def test_the_map_covers_the_world_the_robot_is_spawned_into(self) -> None:
+        world = ET.parse(WORLDS / "test_room.sdf").getroot()
+        walls = next(
+            model for model in world.iter("model") if model.get("name") == "walls"
+        )
+        extents = []
+        for collision in walls.iter("collision"):
+            pose = [float(part) for part in collision.find("pose").text.split()]
+            size = [
+                float(part)
+                for part in collision.find("geometry/box/size").text.split()
+            ]
+            extents.append((pose[0], pose[1], size[0], size[1]))
+
+        origin_x, origin_y = self.map["origin"][0], self.map["origin"][1]
+        far_x = origin_x + self.width * self.map["resolution"]
+        far_y = origin_y + self.height * self.map["resolution"]
+
+        # Every wall has to be inside the image, or the room the robot drives
+        # in is partly off the edge of the map it is localizing against.
+        for x, y, length, width in extents:
+            with self.subTest(wall=(x, y)):
+                self.assertLessEqual(origin_x, x - length / 2.0)
+                self.assertGreaterEqual(far_x, x + length / 2.0)
+                self.assertLessEqual(origin_y, y - width / 2.0)
+                self.assertGreaterEqual(far_y, y + width / 2.0)
+
+    def test_the_pose_amcl_starts_at_is_free_space_on_this_map(self) -> None:
+        amcl = yaml.safe_load((CONFIG / "nav2.yaml").read_text())["amcl"]
+        pose = amcl["ros__parameters"]["initial_pose"]
+
+        resolution = self.map["resolution"]
+        column = int((pose["x"] - self.map["origin"][0]) / resolution)
+        row = int((pose["y"] - self.map["origin"][1]) / resolution)
+        # Row 0 of a .pgm is the top of the image, which is the highest y.
+        pixel = self.pixels[(self.height - 1 - row) * self.width + column]
+
+        # map_server reads a pixel as occupancy (255 - pixel) / 255 when
+        # negate is 0, and calls anything below free_thresh free.
+        self.assertLess(
+            (255 - pixel) / 255.0,
+            self.map["free_thresh"],
+            "AMCL starts the robot inside an obstacle or in unknown space, so "
+            "the first goal will be rejected before anything moves",
+        )
+
+    def test_amcl_starts_where_the_simulation_spawns_the_robot(self) -> None:
+        simulation = (LAUNCH / "simulation.launch.py").read_text()
+        spawn = {
+            axis: float(
+                re.search(rf'"-{axis}",\s*"(-?[\d.]+)"', simulation).group(1)
+            )
+            for axis in ("x", "y")
+        }
+        amcl = yaml.safe_load((CONFIG / "nav2.yaml").read_text())["amcl"]
+        pose = amcl["ros__parameters"]["initial_pose"]
+
+        # This map is rendered from the world file, so map coordinates are
+        # world coordinates and AMCL can be told exactly where the robot is.
+        # Move the spawn without moving this and navigation comes up believing
+        # the robot is somewhere it is not.
+        self.assertAlmostEqual(pose["x"], spawn["x"])
+        self.assertAlmostEqual(pose["y"], spawn["y"])
+
+
+class MapInstallTests(unittest.TestCase):
+    """A committed map that is not installed is still a path to nothing.
+
+    navigation.launch.py resolves its default through the package share
+    directory, which only contains what setup.py lists.
+    """
+
+    def setUp(self) -> None:
+        self.setup = (SHARE / "setup.py").read_text()
+        self.navigation = (LAUNCH / "navigation.launch.py").read_text()
+
+    def test_setup_installs_the_map_and_its_image(self) -> None:
+        self.assertIn('glob("maps/*.yaml")', self.setup)
+        self.assertIn('glob("maps/*.pgm")', self.setup)
+
+    def test_the_default_map_is_the_one_that_is_installed(self) -> None:
+        self.assertIn('"maps" / "test_room.yaml"', self.navigation)
+        self.assertTrue((MAPS / "test_room.yaml").is_file())
+
+
+class MapGeneratorTests(unittest.TestCase):
+    """The world-to-map fallback, which is what produced the committed map.
+
+    It is not SLAM and does not pretend to be; it exists so navigation has a
+    map before a simulator run can be completed. These tests keep it honest
+    about the world it claims to render.
+    """
+
+    def setUp(self) -> None:
+        from robot_bringup.world_to_map import render
+
+        self.grid = render(WORLDS / "test_room.sdf")
+
+    def cell(self, x: float, y: float) -> int:
+        column = int((x - self.grid.origin[0]) / self.grid.resolution)
+        row = int((y - self.grid.origin[1]) / self.grid.resolution)
+        return self.grid.cells[row][column]
+
+    def test_obstacles_in_the_world_are_occupied_on_the_map(self) -> None:
+        from robot_bringup.world_to_map import OCCUPIED
+
+        self.assertEqual(self.cell(-1.2, 1.0), OCCUPIED, "the table")
+        self.assertEqual(self.cell(1.6, -1.4), OCCUPIED, "the cabinet")
+        self.assertEqual(self.cell(0.0, 2.5), OCCUPIED, "the north wall")
+
+    def test_the_open_floor_is_free(self) -> None:
+        from robot_bringup.world_to_map import FREE
+
+        self.assertEqual(self.cell(-2.0, -1.5), FREE, "where the robot spawns")
+        self.assertEqual(self.cell(0.0, 0.0), FREE, "the middle of the room")
+
+    def test_outside_the_room_is_unknown_rather_than_free(self) -> None:
+        from robot_bringup.world_to_map import UNKNOWN
+
+        # The doorway in the east wall opens onto space no scan ever saw.
+        # Mapping it as free would invite the planner to route through it.
+        self.assertEqual(self.cell(3.2, 0.0), UNKNOWN)
+
+    def test_rendering_the_same_world_twice_gives_the_same_map(self) -> None:
+        from robot_bringup.world_to_map import render
+
+        self.assertEqual(self.grid.pgm(), render(WORLDS / "test_room.sdf").pgm())
+
+    def test_the_committed_map_is_what_this_world_renders_to(self) -> None:
+        # If the world gains a wall, the committed map is stale, and the
+        # robot will localize against a room that no longer exists.
+        self.assertEqual(self.grid.pgm(), (MAPS / "test_room.pgm").read_bytes())
+
+
 class Nav2GeometryTests(unittest.TestCase):
     """Nav2's idea of the robot's shape must match the robot's actual shape.
 
@@ -528,6 +716,39 @@ class NavigationTopologyTests(unittest.TestCase):
         # failure. The gate is the thing that has to still be running then.
         self.assertNotIn("safety_controller", names)
         self.assertNotIn("robot_safety", names)
+
+    def test_the_gate_is_not_under_lifecycle_control_while_mapping_either(
+        self,
+    ) -> None:
+        import ast as _ast
+
+        tree = _ast.parse(self.navigation)
+        managed = next(
+            node
+            for node in _ast.walk(tree)
+            if isinstance(node, _ast.Assign)
+            and any(
+                getattr(target, "id", None) == "SLAM_MANAGED_NODES"
+                for target in node.targets
+            )
+        )
+
+        # The slam list is derived from MANAGED_NODES rather than written out
+        # again, so the gate cannot be added to one list and not the other.
+        self.assertIn("MANAGED_NODES", _ast.dump(managed.value))
+        self.assertNotIn("safety_controller", _ast.dump(managed.value))
+
+    def test_mapping_mode_drops_the_nodes_that_need_a_saved_map(self) -> None:
+        # map_server and amcl have nothing to do while slam_toolbox owns
+        # map->odom, and a lifecycle manager waiting on nodes that were never
+        # started never activates the ones that were.
+        self.assertIn('LOCALIZATION_NODES = ["map_server", "amcl"]', self.navigation)
+        self.assertIn('"slam"', self.navigation)
+
+    def test_navigation_has_a_map_to_fall_back_on(self) -> None:
+        # Without a default, `ros2 launch robot_bringup navigation.launch.py`
+        # is an error rather than a run.
+        self.assertIn('default_value=default_map', self.navigation)
 
     def test_mapping_launches_nothing_that_can_drive(self) -> None:
         # Mapping is supervised and manual: the operator drives with teleop

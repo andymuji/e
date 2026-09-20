@@ -81,14 +81,40 @@ map Nav2 localizes against is a reviewed artifact:
 ros2 run nav2_map_server map_saver_cli -f maps/test_room
 ```
 
-**No map is committed yet**, so `navigation.launch.py` has nothing to load
-until someone does the above and checks the result in. Build one first, or
-Nav2 will come up and refuse every goal. A map saved without driving the robot
-around covers only what the lidar saw from the spawn point, and a goal outside
-that patch is rejected with "Start Coordinates ... outside bounds" - so cover
-the room before saving. Note also that SLAM anchors the map at the robot's
-starting pose: the initial pose you give AMCL is in map coordinates, which are
-not the Gazebo world coordinates the robot was spawned at.
+A map saved without driving the robot around covers only what the lidar saw
+from the spawn point, and a goal outside that patch is rejected with "Start
+Coordinates ... outside bounds" - so cover the room before saving. This is
+worse than it sounds. A map saved from a standing robot was measured: 1,316
+free cells against 10,463 unknown ones, and the free cells are a speckled fan
+rather than a floor, because at 5 m the beams of a 1-degree lidar are 9 cm
+apart and the cells between them are 5 cm. One scan does not make a room.
+
+Note also that SLAM anchors the map at the robot's starting pose: the initial
+pose you give AMCL is in map coordinates, which are not the Gazebo world
+coordinates the robot was spawned at.
+
+### The committed map is generated, not driven
+
+`maps/test_room.yaml` is rendered from `worlds/test_room.sdf` by
+
+```bash
+ros2 run robot_bringup world_to_map \
+  robot/ros2_ws/src/robot_bringup/worlds/test_room.sdf -f maps/test_room
+```
+
+It exists so that `navigation.launch.py` has something to load, and it is
+exact where a driven map is honest: it contains the room's geometry with no
+sensor, no drift, and no shadow behind the table. **It is not evidence that
+anything has been mapped or navigated.** Because it comes from the world file
+its frame is the Gazebo world frame, which is why `nav2.yaml` can start AMCL
+at the spawn pose; a driven map would be anchored at the robot's start
+instead, where the robot begins at the origin.
+
+Replace it with a driven map when a run can be completed, and change the AMCL
+`initial_pose` in `nav2.yaml` to match the new frame when you do. The test
+`MapGeneratorTests` checks the committed map against the world file, so
+changing the room without rebuilding the map fails the suite; delete that one
+test when the map stops being generated.
 
 ## Navigate to a goal
 
@@ -97,18 +123,41 @@ one:
 
 ```bash
 ros2 launch robot_bringup simulation.launch.py safety:=false
-ros2 launch robot_bringup navigation.launch.py map:=/absolute/path/test_room.yaml
+ros2 launch robot_bringup navigation.launch.py
 ```
 
-This starts AMCL, Nav2, and the safety gate.
+This starts AMCL, Nav2, and the safety gate. `map:=` defaults to the committed
+map of the test room; pass a path to use another.
 
 `safety:=false` matters. Both launch files start a gate, and run together they
 both subscribe to `cmd_vel_requested` and both publish `cmd_vel`. The gate this
 launch brings is the strict one - it adds the localization and battery checks -
 so the simulation's gate would go on commanding motion while this one is trying
 to stop. Leave the simulation's gate on when driving by teleop, and off
-whenever Nav2 is coming. Set the initial pose in RViz
-before sending a goal: AMCL has to be told roughly where the robot is.
+whenever Nav2 is coming.
+
+AMCL starts at the pose the simulation spawns the robot at, so the stack comes
+up localized without RViz. That only works while the committed map shares the
+Gazebo world frame; against a driven map, set the initial pose in RViz, or
+change `initial_pose` in `nav2.yaml`. Then send a goal - through Nav2, which is
+the only sanctioned way to ask for motion:
+
+```bash
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
+  "{pose: {header: {frame_id: map}, pose: {position: {x: 1.0, y: 1.0}, \
+   orientation: {w: 1.0}}}}"
+```
+
+While the map is still being built there is nothing for AMCL to localize
+against, so `slam:=true` drops map_server and AMCL and takes `map->odom` from
+a running `slam.launch.py` instead. That is how to drive the robot under goals
+while mapping, without putting a planner into `slam.launch.py`, which must
+launch nothing that can drive:
+
+```bash
+ros2 launch robot_bringup slam.launch.py
+ros2 launch robot_bringup navigation.launch.py slam:=true
+```
 
 Nav2 is a motion source, not a motion authority. Both `controller_server` and
 `behavior_server` have `cmd_vel` remapped to `cmd_vel_requested`, so the path
@@ -147,10 +196,45 @@ Nav2 planner plugin was named in Humble's form and aborted the whole bringup,
 and the gate took localization freshness from a topic AMCL stops publishing
 when the robot stands still, which deadlocked it. All four are fixed.
 
+A second run went further and checked the claims this project makes about its
+own topic graph, rather than checking the files that are supposed to produce
+it. Against a live system:
+
+- `/cmd_vel` had exactly one publisher, the safety gate. This is the
+  repository's central safety claim and it had never been observed before.
+- `controller_server` and `behavior_server` both published to
+  `/cmd_vel_requested` and neither published `/cmd_vel`. `behavior_server`
+  showed three publishers on the request topic, one per recovery behaviour -
+  spin, back up and wait - which is three more paths the remap has to cover
+  than the one a reading of the launch file suggests.
+- The lifecycle manager's `node_names`, read from the running node rather than
+  from the file, did not contain the gate.
+- `slam_toolbox` reached `active`, published `map->odom`, and `map_saver_cli`
+  wrote a map, so the lifecycle fix from the first run holds.
+- `map_server` loaded the committed map and activated, and AMCL with it.
+
+Two things were learned the hard way. The simulator's lidar arrives at about
+7.5 Hz rather than the 10 Hz the sensor is configured for, because the
+container runs Gazebo at roughly three-quarters of real time; `sensor_timeout`
+is 0.5 s and the observed worst gap was 0.23 s, so there is margin, but a
+slower machine would start tripping the gate on nothing. And ROS 2 defaults to
+domain 0, so a second stack running anywhere on the same machine joins the
+same graph: during this run `/cmd_vel` briefly showed two publishers, both
+named `safety_controller`, one of which belonged to somebody else's workspace.
+Set `ROS_DOMAIN_ID` before believing any count of publishers.
+
+**Nothing has navigated anywhere yet.** No robot has been driven under a goal,
+no map has been built by driving, and the DWB critics and AMCL have never been
+tuned against a moving robot, because that run has not been completed. Expect
+the first one to need tuning, and expect it to find things, as both runs so
+far have.
+
 CI still has no Gazebo, so none of this is a regression test - the suite
-checks the configuration for internal consistency and nothing more. Treat
-further simulator work as bring-up, and expect to tune AMCL and the DWB
-critics. Run the simulator headless where there is no display:
+checks the configuration for internal consistency and nothing more. It now
+also checks that the committed map exists, is loadable, is installed, and
+still matches the world file, which catches a stale map but says nothing about
+whether a robot could follow it. Run the simulator headless where there is no
+display:
 
 ```bash
 ros2 launch robot_bringup simulation.launch.py rviz:=false headless:=true
