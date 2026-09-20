@@ -4,6 +4,7 @@ import math
 
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, qos_profile_sensor_data
 from sensor_msgs.msg import BatteryState, LaserScan
@@ -235,9 +236,18 @@ def main(args=None) -> None:
     node = SafetyNode()
     try:
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # Ctrl-C and a shutdown from outside are how the gate is meant to be
+        # stopped, not faults. Letting them exit as a traceback on a non-zero
+        # status teaches operators that the gate's stderr is noise to skip
+        # past, and the gate is the one node whose output they must read.
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            # Already torn down when the shutdown came from outside; calling
+            # it twice raises out of the finally and buries whatever happened.
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":
