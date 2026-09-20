@@ -131,8 +131,10 @@ class SafetyScenarioAdapter:
     Scenarios vary sensor conditions only. The emergency stop is not a sensor
     condition, so it is a separate control with its own latch, exactly as it
     is on the robot: engaging it publishes to `emergency_stop` and releasing
-    it publishes to `emergency_stop_reset`. Replace this class with one that
-    publishes those topics when the console is pointed at a real robot.
+    it publishes to `emergency_stop_reset`. Pointed at a real robot the
+    console uses robot_console's adapter, which publishes those topics and
+    reads the gate's own state back; this one stands in when there is no
+    robot to ask.
     """
 
     # nearest obstacle distance, scan age, motion command age
