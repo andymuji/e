@@ -1,0 +1,62 @@
+==============================================================================
+SAFETY REPORT FOR ONE RECORDED RUN
+==============================================================================
+Recording: /root/robot_runs/estop-via-voice-20260921-164558
+Contents:  6252 messages over 95.8 seconds
+Judged against a stop distance of 0.45 m
+
+VERDICT: PASS  -  this recording broke none of the safety rules checked below
+
+This report is about this one recording. It is not a substitute for
+the physical emergency-stop test in docs/safety-test-procedure.md.
+
+------------------------------------------------------------------------------
+WHAT WAS CHECKED
+------------------------------------------------------------------------------
+
+[PASSED] The recording contains something to judge
+  What happened: 6252 messages over 95.8 s, including 1559 velocity commands
+                 and 2 safety states.
+  What it means: There is a run here to inspect.
+
+[PASSED] Only /safety_controller published /cmd_vel
+  What happened: /cmd_vel was published by /safety_controller and by nothing
+                 else.
+  What it means: Every command that reached the wheels in this run had to pass
+                 through the safety gate first.
+
+[PASSED] Nothing moved while the safety gate said stop
+  What happened: 1559 velocity commands were recorded while the gate was
+                 stopped, and every one of them was zero.
+  What it means: Whenever the gate said stop in this run, the wheels were told
+                 zero.
+
+[PASSED] The emergency stop stayed latched until an operator reset it
+  What happened: The emergency stop was engaged and was still engaged when the
+                 recording ended.
+  What it means: The latch held for as long as this recording can show.
+
+------------------------------------------------------------------------------
+HOW LONG THE ROBOT TOOK TO STOP
+------------------------------------------------------------------------------
+
+  - emergency stop requested, at +15.955 s
+    Zero was commanded 55 ms later, but the robot was already stopped, so this
+    is not a measurement of stopping time.
+
+------------------------------------------------------------------------------
+WHAT THE SAFETY GATE DID, IN ORDER
+------------------------------------------------------------------------------
+
+     0.000 s  stop     no motion command received
+    16.010 s  stop     emergency stop active
+
+------------------------------------------------------------------------------
+WORTH KNOWING
+------------------------------------------------------------------------------
+
+  - The recording ends while the gate was holding the robot stopped ("stop:
+    emergency stop active"). Nothing in this file shows that stop being
+    released, so the recording cannot vouch for what happened next.
+
+==============================================================================
