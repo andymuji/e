@@ -240,3 +240,56 @@ Owns: new `robot_bringup/config/collision_monitor.yaml`, new
 
 Same as previous rounds: one merge per track. `README.md`, `AGENTS.md`, this
 file and `.claude/**` belong to neither track and are edited at merge.
+
+## Track A progress: 2026-09-21, third live bring-up
+
+`simulation.launch.py safety:=false` was attempted and **refused again** by the
+permission classifier ("Safety Bypass Flag"). Track A items 1, 2, 4 and 5 stay
+blocked behind it; no attempt was made to reconstruct the same topology by
+hand, because that is the denial's intent rather than its letter.
+
+What was done instead, with the simulator in its *safest* configuration
+(gate on, headless, `ROS_DOMAIN_ID=42`):
+
+- `colcon build` clean, 9 packages, 16 s.
+- Third live bring-up. `/cmd_vel` had **one** publisher, `safety_controller`,
+  and one subscriber, the Gazebo bridge. Third independent confirmation.
+- **New, and not previously checked live: `/emergency_stop_reset` has zero
+  publishers.** Nothing in a running graph can release the latch. That is two
+  written safety rules confirmed against a live system rather than by reading
+  code - `robot_voice` cannot reset, and `robot_telemetry` publishes nothing.
+- The recorder ran against a live graph for the first time (the plan said it
+  never had). It subscribed to `/tf`, `/tf_static`, `/scan`, `/cmd_vel` and
+  `/safety_state` and produced two real recordings, in `/root/robot_runs/`.
+- Voice to latch, live: `say "stop"` moved the gate from "no motion command
+  received" to "emergency stop active", and the latch **held** through a
+  subsequent `say "go to the kitchen"`. The destination did not release it.
+- Both recordings analysed. The second reports four checks PASSED including
+  the latch, and honestly refuses to call the 55 ms zero-command a stopping
+  time because the robot was already stationary.
+- `check.sh: PASSED`, ten suites, `robot_safety` a plain `OK`.
+
+### Defect for Track B: a green verdict over an unexercised check
+
+`robot_telemetry/report.py` lines 64-72. `Report.verdict` returns
+`INCONCLUSIVE` only when **every** finding is `NOT_EXERCISED`. One passing
+check is enough to make the headline `VERDICT: PASS` and the exit code `0`.
+
+The first recording proves it: the emergency stop was never touched, the latch
+check reported `NOT EXERCISED`, and the report still opened with
+`VERDICT: PASS` and exited `0`. `docs/safety-test-procedure.md` says a check
+the run never put to the test "is deliberately not a pass" - the body of the
+report honours that, the two things a reviewer or a CI job actually reads do
+not. A recording where nobody pressed stop should not be attachable to a pull
+request under a green headline.
+
+Suggested shape: any `NOT_EXERCISED` finding makes the verdict
+`INCOMPLETE` - distinct from both `PASS` and `INCONCLUSIVE` - with a non-zero
+exit. That is Track B's call; it owns the file.
+
+### Smaller thing, working as designed
+
+A recorder stopped with `SIGINT` from a non-terminal left no `metadata.yaml`.
+`analyse_run` detected it, exited `3`, and printed the exact `ros2 bag reindex`
+command to fix it, which worked. Worth keeping; it behaved better than the
+thing it was reporting on.
