@@ -205,8 +205,11 @@ Runs `robot_telemetry` but does not edit it.
    real passes or real failures — either is information.
 4. Tune AMCL and the DWB critics from what the runs show. They are untuned
    because there has never been a run to tune them from.
-5. Turn on `require_localization` in `safety_navigation.yaml` now that there
-   is a pose to lose, and confirm losing it stops the robot.
+5. Confirm the localization stop actually fires. `require_localization` is
+   already `true` in `safety_navigation.yaml`, but it has never fired in a
+   real run because nothing has ever navigated. A stop condition that has
+   never triggered is a claim, not a feature. (`safety.yaml` has it `false`
+   for plain simulation; check that asymmetry is deliberate.)
 
 ## Track B — build it (no container needed)
 
