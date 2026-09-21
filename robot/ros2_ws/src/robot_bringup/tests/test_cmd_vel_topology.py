@@ -34,17 +34,58 @@ def keyword(call: ast.Call, name: str) -> ast.AST | None:
     return next((item.value for item in call.keywords if item.arg == name), None)
 
 
+class Unresolvable(Exception):
+    """A launch value this reader cannot prove anything about.
+
+    Raised rather than returned as an empty set. These tests assert that a
+    name is *absent* from a list, and "I could not read the list" is not
+    evidence of absence. Returning `set()` for an unreadable expression makes
+    every such assertion pass without checking anything, which is the one
+    failure mode a safety regression test must not have.
+    """
+
+
 def constant_strings(node: ast.AST, assignments: dict[str, ast.AST]) -> set[str]:
-    """Resolve string literals through simple launch-file assignments."""
+    """Every string a launch expression could evaluate to.
+
+    Over-approximates on purpose. The callers ask "is this name absent?", so
+    returning a superset can only cause a false failure, never a false pass.
+    A `+` is exact; a comprehension is widened to everything it draws from,
+    because a filtered subset of a list cannot contain anything the list did
+    not. Anything else raises `Unresolvable`.
+    """
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return {node.value}
-    if isinstance(node, ast.Name) and node.id in assignments:
+    if isinstance(node, ast.Name):
+        if node.id not in assignments:
+            raise Unresolvable(f"name {node.id!r} is not assigned in this file")
         return constant_strings(assignments[node.id], assignments)
     if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        return set().union(*(constant_strings(item, assignments) for item in node.elts))
+        return set().union(
+            set(), *(constant_strings(item, assignments) for item in node.elts)
+        )
     if isinstance(node, ast.Dict):
-        return set().union(*(constant_strings(item, assignments) for item in node.values))
-    return set()
+        return set().union(
+            set(), *(constant_strings(item, assignments) for item in node.values)
+        )
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        # MANAGED_NODES + ["safety_controller"] - exact, and the shape that
+        # slipped past the first version of this file.
+        return constant_strings(node.left, assignments) | constant_strings(
+            node.right, assignments
+        )
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        # [n for n in MANAGED_NODES if n not in LOCALIZATION_NODES] - the
+        # result is a subset of what it iterates, which is enough to prove a
+        # name absent.
+        return set().union(
+            set(),
+            *(
+                constant_strings(generator.iter, assignments)
+                for generator in node.generators
+            ),
+        )
+    raise Unresolvable(f"cannot read a {type(node).__name__} as strings")
 
 
 def assignments(tree: ast.AST) -> dict[str, ast.AST]:
@@ -88,19 +129,28 @@ def is_safety_gate(call: ast.Call) -> bool:
     )
 
 
-def published_topics(source: str) -> set[str]:
-    """Topics passed to create_publisher, resolving module-level constants."""
+def published_topics(source: str) -> tuple[set[str], list[str]]:
+    """Topics passed to create_publisher, and the ones that could not be read.
+
+    The second element matters as much as the first: a topic name assembled at
+    runtime is a publisher this reader cannot vouch for, and the caller is
+    expected to fail rather than ignore it.
+    """
     tree = ast.parse(source)
     known = assignments(tree)
-    topics = set()
+    topics: set[str] = set()
+    unreadable: list[str] = []
     for call in ast.walk(tree):
         if (
             isinstance(call, ast.Call)
             and getattr(call.func, "attr", None) == "create_publisher"
             and len(call.args) >= 2
         ):
-            topics.update(constant_strings(call.args[1], known))
-    return topics
+            try:
+                topics.update(constant_strings(call.args[1], known))
+            except Unresolvable as reason:
+                unreadable.append(f"line {call.lineno}: {reason}")
+    return topics, unreadable
 
 
 class CmdVelTopologyTests(unittest.TestCase):
@@ -147,20 +197,65 @@ class CmdVelTopologyTests(unittest.TestCase):
         self.assertEqual(found, {"controller_server", "behavior_server"})
 
     def test_only_the_safety_gate_can_be_the_cmd_vel_authority(self) -> None:
-        gates = []
-        for filename, (_, source) in self.launches.items():
-            for call in node_calls(source):
-                if is_safety_gate(call):
-                    gates.append((filename, call))
+        """No package but robot_safety may create a /cmd_vel publisher.
+
+        The launch files decide what is *started*; this decides what is even
+        capable of reaching the wheels. A node that opens a cmd_vel publisher
+        is a second authority whether or not a launch file starts it today.
+        """
+        offenders = []
+        scanned = 0
+        for package_root in sorted(WORKSPACE_SRC.iterdir()):
+            package = package_root.name
+            module_root = package_root / package
+            if not module_root.is_dir():
+                continue
+            for path in sorted(module_root.rglob("*.py")):
+                scanned += 1
+                topics, unreadable = published_topics(path.read_text())
+                relative = path.relative_to(WORKSPACE_SRC)
+                self.assertEqual(
+                    unreadable,
+                    [],
+                    f"{relative}: publisher topic cannot be read, so this "
+                    "test cannot prove it is not /cmd_vel.",
+                )
+                if {"cmd_vel", "/cmd_vel"} & topics and package != "robot_safety":
+                    offenders.append(str(relative))
+
+        self.assertEqual(
+            offenders,
+            [],
+            "only robot_safety may publish the topic that reaches the wheels",
+        )
+        # The gate itself must still be in there, or this test is scanning
+        # nothing and would pass on an empty workspace.
+        gate = WORKSPACE_SRC / "robot_safety" / "robot_safety" / "safety_node.py"
+        gate_topics, _ = published_topics(gate.read_text())
+        self.assertTrue(
+            {"cmd_vel", "/cmd_vel"} & gate_topics,
+            "robot_safety/safety_node.py no longer publishes cmd_vel; either "
+            "the gate moved or this test is looking in the wrong place.",
+        )
+        self.assertGreater(scanned, 20, f"only scanned {scanned} modules")
+
+    def test_the_gate_is_declared_only_where_it_is_expected(self) -> None:
+        gates = {
+            filename
+            for filename, (_, source) in self.launches.items()
+            for call in node_calls(source)
+            if is_safety_gate(call)
+        }
 
         # The simulation gate is conditional; navigation supplies its own
         # stricter gate. Both may exist in source, but no other launcher may
         # introduce a second command authority.
-        self.assertEqual({filename for filename, _ in gates}, {
-            "simulation.launch.py", "navigation.launch.py"
-        })
+        self.assertEqual(
+            gates, {"simulation.launch.py", "navigation.launch.py"}
+        )
 
     def test_no_lifecycle_manager_can_deactivate_the_gate(self) -> None:
+        examined = 0
         for filename, (tree, source) in self.launches.items():
             known = assignments(tree)
             for call in node_calls(source):
@@ -168,25 +263,65 @@ class CmdVelTopologyTests(unittest.TestCase):
                 if not (isinstance(package, ast.Constant)
                         and package.value == "nav2_lifecycle_manager"):
                     continue
-                for parameters in [keyword(call, "parameters")]:
-                    if not isinstance(parameters, ast.List):
+                parameters = keyword(call, "parameters")
+                self.assertIsInstance(
+                    parameters,
+                    ast.List,
+                    f"{filename}: a lifecycle manager whose parameters this "
+                    "test cannot read. Rewrite it as a literal list, or teach "
+                    "this test the new shape - do not leave it unchecked.",
+                )
+                for item in parameters.elts:
+                    if not isinstance(item, ast.Dict):
                         continue
-                    for item in parameters.elts:
-                        if not isinstance(item, ast.Dict):
+                    for key, value in zip(item.keys, item.values, strict=False):
+                        if not (isinstance(key, ast.Constant)
+                                and key.value == "node_names"):
                             continue
-                        for key, value in zip(item.keys, item.values, strict=False):
-                            if isinstance(key, ast.Constant) and key.value == "node_names":
-                                names = constant_strings(value, known)
-                                with self.subTest(launch=filename, names=names):
-                                    self.assertNotIn("safety_controller", names)
-                                    self.assertNotIn("robot_safety", names)
+                        try:
+                            names = constant_strings(value, known)
+                        except Unresolvable as unreadable:
+                            self.fail(
+                                f"{filename}: cannot read the node_names of a "
+                                f"lifecycle manager ({unreadable}). An "
+                                "unreadable list is not proof the gate is "
+                                "absent from it."
+                            )
+                        examined += 1
+                        with self.subTest(launch=filename, names=sorted(names)):
+                            self.assertNotIn("safety_controller", names)
+                            self.assertNotIn("robot_safety", names)
+
+        # Without this, deleting every lifecycle manager - or renaming the
+        # parameter - would turn this test into a silent pass.
+        self.assertGreaterEqual(
+            examined,
+            2,
+            "expected to check the node_names of both lifecycle managers in "
+            "navigation.launch.py; found "
+            f"{examined}. The gate must be absent from a list this test "
+            "actually read.",
+        )
 
     def test_voice_and_telemetry_cannot_release_an_emergency_stop(self) -> None:
         for package in ("robot_voice", "robot_telemetry"):
             module_root = WORKSPACE_SRC / package / package
-            for path in module_root.glob("*.py"):
+            self.assertTrue(module_root.is_dir(), f"{module_root} is missing")
+            # rglob, not glob: a publisher hidden one directory down is still
+            # a voice that can undo a stop.
+            modules = sorted(module_root.rglob("*.py"))
+            self.assertTrue(modules, f"no modules found under {module_root}")
+            for path in modules:
                 with self.subTest(package=package, file=path.name):
-                    self.assertNotIn("emergency_stop_reset", published_topics(path.read_text()))
+                    topics, unreadable = published_topics(path.read_text())
+                    self.assertEqual(
+                        unreadable,
+                        [],
+                        f"{path.name}: publisher topic cannot be read, so "
+                        "this test cannot prove it is not emergency_stop_reset.",
+                    )
+                    self.assertNotIn("emergency_stop_reset", topics)
+                    self.assertNotIn("/emergency_stop_reset", topics)
 
 
 if __name__ == "__main__":
