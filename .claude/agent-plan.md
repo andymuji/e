@@ -293,3 +293,43 @@ A recorder stopped with `SIGINT` from a non-terminal left no `metadata.yaml`.
 `analyse_run` detected it, exited `3`, and printed the exact `ros2 bag reindex`
 command to fix it, which worked. Worth keeping; it behaved better than the
 thing it was reporting on.
+
+## Track A, continued: SLAM and Nav2 observed live
+
+Two more things that need no `safety:=false`, because neither arrangement puts
+two gates on `/cmd_vel`.
+
+**SLAM against the simulator.** `slam.launch.py` launches only `slam_toolbox`,
+which publishes no velocity, so it runs safely beside the simulation gate. The
+mapping pipeline ran end to end for the first time: the lidar registered, and
+`/map` appeared and grew from live scans rather than from the world file.
+
+The map is **not** a substitute for the driven one. Its bounding box came out
+6.0 x 4.95 m, close enough to the 6x5 m room to be misleading, but only
+**11.5% of its cells were known** (1269 free, 102 occupied, 10509 unknown).
+The lidar cannot see the room from the start pose - the table and cabinet
+occlude it. A usable map still needs the robot driven around, so Track A item
+2 stays blocked with items 1, 4 and 5. Worth recording because the bounding
+box alone would have suggested otherwise.
+
+**Nav2 standalone, no simulator.** Run alone, `navigation.launch.py` brings
+the only gate in the graph, so this needs no flag either. Fifteen nodes came
+up and the committed map loaded (134 x 114 at 0.05 m).
+
+Three claims checked against a running Nav2 stack:
+
+- `/cmd_vel`: **one** publisher, `safety_controller`, with the full stack up
+  including `behavior_server`.
+- `/cmd_vel_requested`: **four** publishers - `controller_server` once and
+  `behavior_server` three times, one per recovery behaviour. The remap holds
+  for every velocity-capable Nav2 node, including the ones that run when
+  something has already gone wrong.
+- **The gate is not lifecycle-managed, verified live for the first time.**
+  `ros2 lifecycle nodes` lists nine managed nodes; `safety_controller` has no
+  lifecycle interface at all, so the lifecycle manager cannot deactivate it
+  on failure. Until now this was asserted by a launch-file test
+  (`test_the_gate_is_not_under_lifecycle_control`) and never observed.
+
+That last one is the strongest result of the session: the test proved the gate
+was absent from a Python list, and this proves the running node has no
+interface to be shut down through.
