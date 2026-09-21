@@ -164,3 +164,76 @@ tell them to use Write/Edit.
   user's decision, not an agent's.
 - No recording has been made of a full simulation run, so `robot_telemetry`
   has never read `/map`, `/amcl_pose` or `/tf` in anger - only counted them.
+
+---
+
+# Third fan-out: 2026-09-21 — two humans, not four agents
+
+Split for two people working at the same time. The dividing line is the
+devcontainer: **Track A needs ROS + Gazebo running, Track B does not.** That
+keeps the two people off each other's ROS graph as well as out of each other's
+files, and it means Track B still moves in a Codespace that was never rebuilt.
+
+Still hardware-blocked, and still only this: `robot_description/urdf/robot.urdf.xacro`
+dimensions and `robot_bringup/config/base_dynamics.yaml`. Nothing below needs
+the robot to exist.
+
+## Blocker to clear before Track A starts
+
+`simulation.launch.py safety:=false` is refused by the permission system as
+weakening safety. Reading the argument's own description, it is the opposite:
+`navigation.launch.py` brings its own gate with the stricter navigation
+params, and two gates both publishing `/cmd_vel` means the laxer one keeps
+commanding motion while the stricter one is trying to stop. The robot is
+gated either way; the flag decides *which* gate, not *whether*. Allowing it is
+the safe choice, and it is the only thing standing between this repo and its
+first goal-reaching run. Needs the user's decision, not an agent's.
+
+## Track A — drive it (needs the container)
+
+Owns: `robot_bringup/launch/*`, `robot_bringup/config/nav2*`, `robot_bringup/maps/**`,
+`robot_navigation/config/**`, `docs/getting-started.md`.
+Runs `robot_telemetry` but does not edit it.
+
+1. First goal-reaching run in simulation. Nothing has navigated, anywhere.
+2. Drive the room under SLAM and save a real map, replacing the one rendered
+   from the world file. Removes a placeholder the same way measuring the base
+   would.
+3. Record that run with `robot_telemetry` and run `analyse` on it. The
+   recorder has never read `/map`, `/amcl_pose` or `/tf` in anger, only
+   counted them. Expect the analyser's `NOT EXERCISED` lines to turn into
+   real passes or real failures — either is information.
+4. Tune AMCL and the DWB critics from what the runs show. They are untuned
+   because there has never been a run to tune them from.
+5. Turn on `require_localization` in `safety_navigation.yaml` now that there
+   is a pose to lose, and confirm losing it stops the robot.
+
+## Track B — build it (no container needed)
+
+Owns: new `robot_bringup/config/collision_monitor.yaml`, new
+`robot_bringup/launch/collision_monitor.launch.py`, new `docs/hazard-analysis.md`,
+`.github/workflows/**`, `robot_telemetry/**`, `robot_console/**`, `web_ui/**`,
+`robot_voice/**`.
+
+1. Nav2 Collision Monitor. README integration order step 5, absent from the
+   repo. It is the independent second layer that is supposed to sit beside
+   `robot_safety`, not behind it. Its footprint derives from the URDF like
+   everything else, so it is measurement-independent. New config + new launch
+   file + new test, so it does not collide with Track A; wiring it into
+   `navigation.launch.py` is a one-line integration at merge.
+2. Hazard analysis. README suggested first issue 2 is "hazard analysis and
+   emergency-stop test procedure". The test procedure exists;
+   the hazard analysis does not. It is the document the Collision Monitor
+   zones and the exclusion zone should both be argued from.
+3. A regression test for the safety topology that CI can actually run. CI has
+   no Gazebo, so every claim proven by the two live runs — one publisher on
+   `/cmd_vel`, Nav2 remapped, `behavior_server`'s three publishers — is
+   currently proven once by hand and never again. Either headless Gazebo in
+   CI or a launch-graph test that does not need it.
+4. Whatever Track A's recordings expose in the analyser. Track A produces the
+   recordings; Track B fixes the analyser.
+
+## Merge
+
+Same as previous rounds: one merge per track. `README.md`, `AGENTS.md`, this
+file and `.claude/**` belong to neither track and are edited at merge.
