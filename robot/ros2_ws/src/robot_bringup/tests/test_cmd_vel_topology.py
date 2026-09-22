@@ -832,5 +832,139 @@ class WitnessesAndVoicesCannotUndoAStopTests(unittest.TestCase):
                     self.assertNotIn(WHEELS, text)
 
 
+def source_assignments(tree: ast.AST) -> dict[str, ast.AST]:
+    """Every name assigned in a module, so a topic held in one can be read."""
+    return {
+        target.id: node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+
+def constant_strings(node: ast.AST, known: dict[str, ast.AST]) -> set[str]:
+    """Every string an expression could evaluate to.
+
+    Over-approximates on purpose. The caller asks "is this topic absent?", so
+    a superset can only cause a false failure, never a false pass. A `+` is
+    exact; a comprehension widens to everything it draws from, because a
+    filtered subset cannot contain what its source did not. Anything else is
+    Unreadable, which fails - "I could not read it" is not evidence of
+    absence.
+    """
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {node.value}
+    if isinstance(node, ast.Name):
+        if node.id not in known:
+            raise Unreadable(f"name {node.id!r} is not assigned in this file")
+        return constant_strings(known[node.id], known)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return set().union(
+            set(), *(constant_strings(item, known) for item in node.elts)
+        )
+    if isinstance(node, ast.Dict):
+        return set().union(
+            set(), *(constant_strings(item, known) for item in node.values)
+        )
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return constant_strings(node.left, known) | constant_strings(
+            node.right, known
+        )
+    if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
+        return set().union(
+            set(),
+            *(
+                constant_strings(generator.iter, known)
+                for generator in node.generators
+            ),
+        )
+    raise Unreadable(f"cannot read a {type(node).__name__} as strings")
+
+
+def published_topics(source: str) -> tuple[set[str], list[str]]:
+    """Topics passed to create_publisher, and the ones that could not be read.
+
+    The second half matters as much as the first: a topic name assembled at
+    runtime is a publisher this reader cannot vouch for, and the caller is
+    expected to fail rather than ignore it.
+    """
+    tree = ast.parse(source)
+    known = source_assignments(tree)
+    topics: set[str] = set()
+    unreadable: list[str] = []
+    for call in ast.walk(tree):
+        if (
+            isinstance(call, ast.Call)
+            and getattr(call.func, "attr", None) == "create_publisher"
+            and len(call.args) >= 2
+        ):
+            try:
+                topics.update(constant_strings(call.args[1], known))
+            except Unreadable as reason:
+                unreadable.append(f"line {call.lineno}: {reason}")
+    return topics, unreadable
+
+
+class OnlyTheGateCanReachTheWheelsTests(unittest.TestCase):
+    """No package but robot_safety may even open a /cmd_vel publisher.
+
+    Everything above this asks what the launch files *start*. This asks what
+    is capable of reaching the wheels at all. A node that opens a cmd_vel
+    publisher is a second authority whether or not a launch file starts it
+    today - and a launch file that starts it can be written afterwards, by
+    someone who never reads this directory.
+
+    Kept from the parallel implementation on the `track-b` branch, which
+    caught exactly this and which the launch-file checks above do not: a
+    create_publisher added to an ordinary module is invisible to every remap
+    and every parameter file.
+    """
+
+    def test_no_package_but_the_gate_creates_a_wheel_publisher(self) -> None:
+        offenders = []
+        scanned = 0
+        for package_root in sorted(SRC.iterdir()):
+            module_root = package_root / package_root.name
+            if not module_root.is_dir():
+                continue
+            for path in sorted(module_root.rglob("*.py")):
+                scanned += 1
+                topics, unreadable = published_topics(path.read_text())
+                relative = path.relative_to(SRC)
+
+                self.assertEqual(
+                    unreadable,
+                    [],
+                    f"{relative}: a publisher's topic cannot be read, so "
+                    "nothing here can prove it is not the wheel topic",
+                )
+                if package_root.name == GATE_PACKAGE:
+                    continue
+                if {topic(name) for name in topics} & {WHEELS}:
+                    offenders.append(str(relative))
+
+        self.assertEqual(
+            offenders,
+            [],
+            "only robot_safety may publish the topic that reaches the wheels",
+        )
+        self.assertGreater(scanned, 20, f"only scanned {scanned} modules")
+
+    def test_the_gate_still_publishes_the_wheel_topic(self) -> None:
+        # Without this the test above would pass on a workspace where the
+        # gate had been moved, renamed, or deleted: it would simply find no
+        # offenders because it was looking in the wrong place.
+        gate = SRC / GATE_PACKAGE / GATE_PACKAGE / "safety_node.py"
+        topics, _ = published_topics(gate.read_text())
+
+        self.assertIn(
+            WHEELS,
+            {topic(name) for name in topics},
+            "robot_safety/safety_node.py no longer publishes the wheel topic: "
+            "either the gate moved or this test is looking in the wrong place",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
