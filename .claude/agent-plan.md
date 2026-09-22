@@ -333,3 +333,76 @@ Three claims checked against a running Nav2 stack:
 That last one is the strongest result of the session: the test proved the gate
 was absent from a Python list, and this proves the running node has no
 interface to be shut down through.
+
+---
+
+# Track B completed: 2026-09-22
+
+All three Track B tasks are done, plus the analyser defect Track A found. Two
+agents worked in parallel on disjoint files; the integrator did the rest.
+
+| Task | Outcome |
+|---|---|
+| 1. Safety topology regression test | `robot_bringup/tests/test_cmd_vel_topology.py`. Globs every launch file in the workspace rather than naming them, so a launch file added in a package that does not exist yet is covered. 19 of 19 seeded mistakes were caught by a mutation harness. |
+| 2. Hazard analysis | `docs/hazard-analysis.md`. Eighteen hazards, severity-rated, each with what catches it and what does not. |
+| 3. Nav2 Collision Monitor | `config/collision_monitor.yaml`, `launch/collision_monitor.launch.py`, `tests/test_collision_monitor.py`. Zones derived from `BaseFootprint` and the gate's own distances; 6 of 6 seeded mistakes caught. |
+| 4. The green-verdict defect | Fixed. `Verdict.INCOMPLETE`, exit code 4: any `NOT_EXERCISED` finding now keeps the headline off green. |
+
+## What the hazard analysis turned up that nobody had written down
+
+**The gate stops on the nearest obstacle in every direction.** `safety_node.py`
+takes the minimum over the whole 360-degree scan with no angular filter. With
+the current numbers - 0.45 m stop distance, 0.30 m wide robot - the robot
+needs a corridor wider than 1.20 m to move at all, and an interior door is
+0.76-0.81 m. **As configured, the robot would stop dead in the doorway of the
+home it is meant to work in.**
+
+It fails closed, so it is safe. It has never been observed because nothing has
+navigated and the only simulated room is open-plan with no doorways. The
+danger is the fix: the obvious response is to shrink `stop_distance`, which is
+the number protecting against driving into a person.
+
+Recorded as H-04. **Not fixed here**, because narrowing the gate's field of
+view is a real change to the one component everything rests on and needs a
+measured robot and the user's decision. The Collision Monitor establishes the
+directional layer it would be built on, but adding it does not close H-04 on
+its own: it can only ever make the robot more cautious, and the gate behind it
+still looks everywhere.
+
+## Integration notes
+
+- The new topology test initially failed on the new Collision Monitor, and was
+  right to. The monitor names its topics with *parameters* rather than
+  remappings, so the launch file never mentions `cmd_vel` and a remap-based
+  check cannot see where its output goes. Rather than exempting the node, the
+  test now reads the parameter file too (`PARAMETER_CONFIGURED_OUTPUT`), and
+  fails if exactly one parameter file does not answer the question. Nav2's own
+  default for `cmd_vel_out_topic` is `cmd_vel`, so this is the single most
+  dangerous line in the new configuration and is now asserted from two files.
+- The `guard-derived-distances.sh` hook only matched `safety.yaml`.
+  `safety_navigation.yaml` holds the same two derived values and is the file
+  autonomous navigation actually loads, so the stricter configuration was the
+  unguarded one. Both are guarded now.
+- Four comments pointed at test classes that do not exist
+  (`BringupSafetyDistanceTests`, `BringupNavigationTopologyTests`). These are
+  the "here is the evidence for this safety claim" pointers, so a dead one is
+  worse than none. Fixed to the real names.
+
+## Still open, and still the same things
+
+- **Nothing has navigated.** Track A items 1, 2, 4 and 5 remain blocked behind
+  `simulation.launch.py safety:=false`, refused twice by the permission
+  classifier. Needs the user's decision, not an agent's.
+- **H-04 needs deciding** before the robot can leave an open-plan room.
+- The Collision Monitor has never been run: `nav2_collision_monitor` is not
+  installed in the container, and it is deliberately not wired into
+  `navigation.launch.py`, which belongs to Track A.
+
+## For whoever dispatches the next round
+
+Both agents this round independently reported that the harness instructed them
+to make file edits through `sed`, heredocs and shell scripts rather than
+Write/Edit. That is the exact bypass described under "Known gap" above: the
+repo's guard hook only sees Write/Edit. Both ignored it and said so. Tell
+future agents explicitly to use Write/Edit, and treat an agent that edited
+safety configuration through Bash as an unreviewed change.

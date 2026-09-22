@@ -2,6 +2,79 @@
 
 An assistive mobile robot that can map a house, navigate to named locations, avoid obstacles and people, climb stairs, and carry a small payload.
 
+---
+
+## Start here
+
+**This section is written for someone who does not read code.** Everything
+below it is the original project brief and the engineering detail.
+
+### What this project is
+
+A robot that will one day drive around the home of an elderly person and fetch
+things for them. Right now it is software only. **There is no robot.** Nobody
+has built one, bought one, or measured one.
+
+### What actually works today
+
+- A **simulated** robot exists, in a simulated 6 × 5 m room with a table and a
+  cabinet in it. You can drive it around with the keyboard and watch it stop
+  for the furniture.
+- A **safety gate** — the piece of software that decides whether the wheels
+  are allowed to turn — is written, tested, and has been watched running on a
+  live system three separate times.
+- You can **talk to it**: saying "go to the kitchen" produces a navigation
+  goal, and saying "stop" stops it.
+- There is an **operator console** in a web browser showing the map, the
+  robot's state, and a stop button.
+- A **flight recorder** captures a run and then writes a plain-English report
+  saying what was checked and what happened.
+
+### What does not work yet, and why
+
+- **The robot has never driven to a destination.** Not in simulation, not
+  anywhere. The stack starts up and the wiring is correct, but the first
+  goal-reaching run has not happened.
+- **Every measurement in the system is a guess.** How big the robot is, how
+  fast it goes, how hard it can brake — all placeholders. The stopping
+  distances are calculated from those guesses, so they are consistent with
+  each other but not yet true of any real machine.
+- **There is no physical emergency stop.** The software one works and latches.
+  The red button that physically cuts power to the motors has not been bought
+  or wired, and the software one is not a substitute for it.
+- **The robot cannot see a staircase**, or anything lying on the floor. Its
+  one sensor looks out sideways in a flat slice.
+
+### The single idea the whole project rests on
+
+One piece of software, and only that piece, is allowed to talk to the wheels.
+Everything else — the navigation, the voice, the console — can only *ask*:
+
+```text
+navigation / voice / console  ->  "please move"  ->  SAFETY GATE  ->  wheels
+```
+
+The gate can always say no, and says no by default whenever anything is
+missing, stale, or unclear. If you only remember one thing about this
+codebase, remember that, because most of the tests exist to prove that nothing
+has found a way around it.
+
+### Where to read next
+
+| If you want to know… | Read |
+|---|---|
+| What could go wrong, and what we do about it | [docs/hazard-analysis.md](docs/hazard-analysis.md) |
+| How to build and run it yourself | [docs/getting-started.md](docs/getting-started.md) |
+| How the robot must be tested before anyone stands near it | [docs/safety-test-procedure.md](docs/safety-test-procedure.md) |
+| What was actually observed on real runs | [docs/runs/](docs/runs/README.md) |
+| Why the big technical choices were made | [docs/decisions/](docs/decisions/) |
+
+**If you read only one, read the hazard analysis.** It is the honest list of
+what this robot could do to a person, and which of those things the software
+currently prevents.
+
+---
+
 ## Scope decision
 
 Treat stair climbing as a separate mechanical subsystem and risk track. A robot that safely climbs stairs is substantially harder than a wheeled indoor robot, so the project should first prove navigation on one floor in simulation and on a controlled flat test area. Do not put a person or an unsecured payload near a prototype until the emergency-stop and low-level safety behavior has been tested.
@@ -83,7 +156,7 @@ These projects provide the first navigation stack. Pin versions to the chosen RO
 2. Run SLAM Toolbox and save a map while driving slowly around one floor.
 3. Load that map into Nav2 AMCL and verify localization before enabling autonomous motion.
 4. Configure Nav2's robot footprint, inflation radius, maximum speeds, stopping behavior, and recovery actions from measured robot dimensions.
-5. Add Collision Monitor as an independent safety layer. Test sensor timeouts and stop behavior before testing people.
+5. Add Collision Monitor as an independent safety layer. Test sensor timeouts and stop behavior before testing people. **Configured, not yet run:** `robot_bringup/config/collision_monitor.yaml` and `collision_monitor.launch.py` exist, with zones derived from the URDF and the same braking distances as the gate, and tests that fail on drift. It is deliberately not wired into `navigation.launch.py` yet, and `nav2_collision_monitor` is not installed in the dev container, so it has never been loaded by the node it is written for.
 6. Wrap Nav2 Simple Commander in the project's `robot_locations` package and expose only allow-listed actions to voice and web clients.
 
 Do not use the voice service or camera-based suggestions as a substitute for localization or obstacle sensing. They may request a named goal, but Nav2 and the safety controller decide whether and how the robot moves.
@@ -136,7 +209,7 @@ Track each vertical slice as an issue with acceptance tests. Use pull requests f
 Suggested first issues:
 
 1. Choose ROS 2 distribution, simulator, language, and license.
-2. Write the hazard analysis and emergency-stop test procedure.
+2. ~~Write the hazard analysis and emergency-stop test procedure.~~ **Completed:** the procedure is in [docs/safety-test-procedure.md](docs/safety-test-procedure.md) and the hazard analysis in [docs/hazard-analysis.md](docs/hazard-analysis.md). The analysis is deliberately blunt about what is not handled — no physical emergency stop, no drop-off sensing, and no measured robot.
 3. ~~Implement the mock obstacle-stop controller with unit tests.~~ **Completed:** the first hardware-independent safety slice is in `robot/ros2_ws/src/robot_safety`.
 4. Select the flat-floor base, sensors, compute board, and power system.
 5. ~~Create the ROS 2 workspace and a minimal simulated house.~~ **Completed:** `robot_description` holds a differential-drive URDF with a 2D lidar and IMU, `robot_bringup` holds the `test_room` Gazebo Harmonic world and the launch files that start the simulator, the topic bridge, and the safety gate. The URDF dimensions are placeholders pending the hardware choice.
@@ -158,7 +231,7 @@ Run its unit tests with:
 PYTHONPATH=robot/ros2_ws/src/robot_safety python3 -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
 ```
 
-The physical test procedure is documented in [docs/safety-test-procedure.md](docs/safety-test-procedure.md). The next implementation slice is to wrap this controller in a ROS 2 package after the team selects the ROS 2 distribution and robot base.
+The physical test procedure is documented in [docs/safety-test-procedure.md](docs/safety-test-procedure.md), and the hazards it is meant to catch are enumerated in [docs/hazard-analysis.md](docs/hazard-analysis.md). The controller has since been wrapped in the `robot_safety` ROS 2 package and observed running live; the gate described here is the same code the node runs.
 
 ### Simulation
 
@@ -237,6 +310,6 @@ In simulation and in a controlled flat-floor test, a robot stops before a config
 
 ## Development baseline and quick start
 
-The first implementation targets **Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic**. The repository now contains seven installable ROS 2 Python packages and a fail-closed `robot_safety` command gate.
+The first implementation targets **Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic**. The repository now contains nine installable ROS 2 Python packages and a fail-closed `robot_safety` command gate.
 
 Start with [the build and run guide](docs/getting-started.md). The rationale and safety consequences are recorded in [ADR 0001](docs/decisions/0001-ros-baseline.md).
