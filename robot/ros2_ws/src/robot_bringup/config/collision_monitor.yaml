@@ -1,0 +1,147 @@
+# Nav2 Collision Monitor: a second, independent obstacle layer.
+#
+# WHY THIS CANNOT BECOME A WAY AROUND THE SAFETY GATE
+#
+# The Collision Monitor is a motion source CONSTRAINT, not a motion authority.
+# It sits in the middle of the request path and can only ever reduce a
+# velocity that was already being requested. It cannot originate motion, and
+# it never publishes /cmd_vel:
+#
+#     Nav2  ->  /cmd_vel_raw  ->  collision_monitor  ->  /cmd_vel_requested
+#                                                            |
+#                                                            v
+#                                                       robot_safety
+#                                                            |
+#                                                            v
+#                                                        /cmd_vel  ->  wheels
+#
+# Two things make that safe, and both are asserted by the tests:
+#
+# 1. `cmd_vel_out_topic` is cmd_vel_requested, NOT cmd_vel. Nav2 ships this
+#    node with `cmd_vel_out_topic: "cmd_vel"` by default, because upstream
+#    expects the Collision Monitor to be the last thing before the wheels.
+#    Here it is not: the gate is. Taking the upstream default would put a
+#    second publisher on /cmd_vel and break the one rule this whole project
+#    rests on, so the test refuses any value but cmd_vel_requested.
+#
+# 2. Everything it emits is still a request. The gate reads
+#    /cmd_vel_requested and applies its own, omnidirectional check afterwards.
+#    If this node is misconfigured, stops, or is deactivated by the lifecycle
+#    manager, nothing is published onto /cmd_vel_requested at all - so the
+#    gate's command_timeout fires and the robot stops. It fails closed in the
+#    same direction as everything else.
+#
+# WHAT IT ADDS THAT THE GATE DOES NOT
+#
+# The gate takes the nearest obstacle in EVERY direction and compares it to
+# one distance. That is deliberately blunt and it is the right last line, but
+# it means the robot stops for a wall beside it exactly as it stops for a
+# person in front of it (see docs/hazard-analysis.md, H-04).
+#
+# The zones below are directional: they cover the corridor the robot actually
+# sweeps when driving forward. That is the shape the robot needs to get
+# through a doorway. It does not by itself solve H-04 - the gate behind still
+# looks in every direction, so the robot still stops in the doorway - but it
+# is where a directional policy lives once that decision is made, and until
+# then it is a genuine second implementation of obstacle stopping, on a
+# different code path, from a different author.
+#
+# WHERE THE NUMBERS COME FROM - do not hand-edit them
+#
+# Every distance below is DERIVED, like the costmap footprint and the gate's
+# own distances:
+#
+#   - the zone width is the robot's width, from base_length/base_width in
+#     robot_description/urdf/robot.urdf.xacro, via
+#     robot_navigation.footprint.BaseFootprint - the same source the Nav2
+#     costmap footprint uses;
+#   - the zone depth ahead of the robot is the gate's own stop and caution
+#     distances, from robot_bringup/config/base_dynamics.yaml via
+#     robot_safety.distances.derive_safety_distances, measured from the front
+#     edge rather than from the lidar (the gate's distances are lidar-relative
+#     and the monitor's frame is base_footprint, so sensor_to_front_edge is
+#     subtracted);
+#   - the slowdown ratio is caution_speed_scale, the same fraction the gate
+#     applies in its own caution zone.
+#
+# CollisionMonitorGeometryTests recomputes all of it and fails on drift.
+# Change the URDF or base_dynamics.yaml; never this file.
+#
+# NOT YET RUN ANYWHERE. nav2_collision_monitor is not installed in the
+# development container, so this configuration has never been loaded by the
+# node it is written for. The geometry is checked by tests; the parameter
+# names are checked only against the Nav2 Jazzy documentation and source.
+# Treat the first bring-up as bring-up.
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+
+    # The monitor works in the robot's own frame, so the zones below are
+    # measured from the middle of the base: +x is straight ahead, +y is left.
+    base_frame_id: "base_footprint"
+    odom_frame_id: "odom"
+
+    # Requests come in here and leave there. See the argument at the top of
+    # this file: the output must never be cmd_vel.
+    cmd_vel_in_topic: "cmd_vel_raw"
+    cmd_vel_out_topic: "cmd_vel_requested"
+    state_topic: "collision_monitor_state"
+
+    transform_tolerance: 0.2
+
+    # No staler than the gate's own sensor_timeout. A second layer that
+    # tolerates older data than the layer behind it is not a second layer.
+    source_timeout: 0.5
+
+    # Correct the zones for the robot's own movement between scans.
+    base_shift_correction: true
+
+    # Keep publishing the stop for this long after a trigger, so a single
+    # clear scan cannot flick the robot straight back into motion.
+    stop_pub_timeout: 2.0
+
+    # Evaluated in order. Stop first: it is the more restrictive of the two,
+    # and listing it first keeps the file readable in the order that matters.
+    polygons: ["StopZone", "SlowdownZone"]
+
+    # The corridor the robot sweeps driving forward, out to the distance the
+    # gate would need to brake from full speed.
+    # x: -base_length/2 .. base_length/2 + (stop_distance - sensor_to_front_edge)
+    #    = -0.20 .. 0.20 + (0.45 - 0.05) = -0.20 .. 0.60
+    # y: +/- base_width/2 = +/- 0.15
+    StopZone:
+      type: "polygon"
+      points: "[[0.6, 0.15], [0.6, -0.15], [-0.2, -0.15], [-0.2, 0.15]]"
+      action_type: "stop"
+      # Readings inside the zone before it triggers. The gate triggers on a
+      # single reading, so this layer is deliberately the less twitchy of the
+      # two: a lone noisy return should not stop the robot when the layer
+      # behind it will catch a real obstacle anyway. Four is low enough that
+      # anything person-sized is well past it.
+      min_points: 4
+      visualize: true
+      polygon_pub_topic: "collision_monitor_stop_zone"
+      enabled: true
+
+    # Same corridor, out to the caution distance, at the caution speed.
+    # x: -0.20 .. 0.20 + (0.85 - 0.05) = -0.20 .. 1.00
+    SlowdownZone:
+      type: "polygon"
+      points: "[[1.0, 0.15], [1.0, -0.15], [-0.2, -0.15], [-0.2, 0.15]]"
+      action_type: "slowdown"
+      # caution_speed_scale from base_dynamics.yaml: the same fraction of full
+      # speed the gate allows in its own caution zone.
+      slowdown_ratio: 0.35
+      min_points: 4
+      visualize: true
+      polygon_pub_topic: "collision_monitor_slowdown_zone"
+      enabled: true
+
+    # The same lidar the gate watches. One sensor feeding two independent
+    # checks is not two sensors: a blinded lidar defeats both at once, which
+    # is hazard H-02 and needs hardware, not configuration.
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "scan"
+      enabled: true
