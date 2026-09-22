@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # PreToolUse guard: refuse edits that change the derived safety distances.
 #
-# stop_distance and caution_distance in safety.yaml are computed by
-# robot_safety.distances from base_dynamics.yaml. Editing them directly makes
-# the published numbers disagree with the model behind them; the robot_bringup
-# tests fail on that drift. The rest of safety.yaml stays editable.
+# stop_distance and caution_distance are computed by robot_safety.distances
+# from base_dynamics.yaml. Editing them directly makes the published numbers
+# disagree with the model behind them; the robot_bringup tests fail on that
+# drift. The rest of each file stays editable.
+#
+# Both gate parameter files are guarded. safety_navigation.yaml carries the
+# same two derived values as safety.yaml and is the file autonomous navigation
+# actually loads, so guarding only safety.yaml would leave the stricter
+# configuration - the one that runs when Nav2 is driving - unprotected.
 set -uo pipefail
 
 payload=$(cat)
@@ -12,6 +17,7 @@ file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // empty')
 
 case "$file" in
   */robot_bringup/config/safety.yaml) ;;
+  */robot_bringup/config/safety_navigation.yaml) ;;
   *) exit 0 ;;
 esac
 

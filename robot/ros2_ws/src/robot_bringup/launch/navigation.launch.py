@@ -27,7 +27,9 @@ output is a request the safety gate decides on:
 That includes behavior_server. Its recovery behaviours drive the robot, and
 they run precisely when something has already gone wrong, so an unremapped
 behavior_server is a path around the gate at the worst possible moment.
-BringupNavigationTopologyTests asserts the remap on every one of them.
+NavigationTopologyTests asserts the remap on every one of them, and
+test_cmd_vel_topology.py asserts it again across every launch file in the
+workspace.
 
 The gate runs with safety_navigation.yaml rather than safety.yaml, which
 additionally treats a lost or diverged pose as a stop condition. Under teleop

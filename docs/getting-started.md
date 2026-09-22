@@ -296,7 +296,7 @@ becoming a wheel command, the base braking, and whatever sticks out ahead of
 the sensor. The inputs are in `robot_bringup/config/base_dynamics.yaml` and
 the arithmetic is in `robot_safety/distances.py`.
 
-Do not edit the distances in `safety.yaml` by hand. `BringupSafetyDistanceTests`
+Do not edit the distances in `safety.yaml` by hand. `SafetyDistanceDerivationTests`
 recomputes them from the URDF and the dynamics and fails if the two disagree,
 which is what stops the numbers from quietly surviving a change of base,
 sensor rate, or speed limit. Change `base_dynamics.yaml`, then update
