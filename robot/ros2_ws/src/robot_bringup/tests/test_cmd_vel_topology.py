@@ -115,15 +115,19 @@ def topic(name: str) -> str:
 # back it up is Unreadable, which fails.
 PARAMETER_CONFIGURED_OUTPUT = {"collision_monitor": "cmd_vel_out_topic"}
 
+# The other half of the same problem: what those nodes LISTEN to. A node that
+# forwards a velocity is a link in a chain, and a link can only be followed if
+# both of its ends can be read.
+PARAMETER_CONFIGURED_INPUT = {"collision_monitor": "cmd_vel_in_topic"}
 
-def parameter_configured_output(node_name: str) -> str:
-    """The topic a parameter-configured node publishes its velocity onto.
+
+def parameter_configured_topic(node_name: str, wanted: str) -> str:
+    """A velocity topic a node names with a parameter rather than a remapping.
 
     The parameter file is found by looking for the one that configures a node
     with this name, rather than by a path written down here, so moving or
     renaming the file makes this check fail rather than quietly stop running.
     """
-    wanted = PARAMETER_CONFIGURED_OUTPUT[node_name]
     found = []
     for path in sorted(SRC.rglob("config/*.yaml")):
         try:
@@ -150,6 +154,55 @@ def parameter_configured_output(node_name: str) -> str:
     if not isinstance(name, str):
         raise Unreadable(f"{node_name}: {wanted} is not a topic name")
     return topic(name)
+
+
+def topics_that_reach_the_gate() -> frozenset[str]:
+    """Every topic from which a velocity still ends up at the safety gate.
+
+    Being "behind the gate" used to mean one hop: publish to cmd_vel_requested
+    and the gate decides on it. The Collision Monitor made the path two hops -
+    Nav2 publishes cmd_vel_raw, the monitor forwards to cmd_vel_requested -
+    and a check that only knows the one-hop shape would fail a correctly wired
+    robot, which is the kind of failure that gets a safety test loosened.
+
+    So the chain is followed instead of assumed. Start at the topic the gate
+    itself listens to, and repeatedly add the input of any forwarding node
+    whose output is already known to reach the gate. Anything left outside
+    this set does not reach the gate, however it is spelled.
+
+    Following it rather than listing it means another constraint layer can be
+    inserted later without touching this test, while a node that forwards to
+    somewhere else drops out of the set and fails the checks below.
+    """
+    reaching = {REQUEST}
+    changed = True
+    while changed:
+        changed = False
+        for node_name, output_parameter in PARAMETER_CONFIGURED_OUTPUT.items():
+            if node_name not in PARAMETER_CONFIGURED_INPUT:
+                raise Unreadable(
+                    f"{node_name} has a parameter naming where its velocity "
+                    "goes but none naming where it comes from, so the path "
+                    "through it cannot be followed"
+                )
+            output = parameter_configured_topic(node_name, output_parameter)
+            if output not in reaching:
+                continue
+            source = parameter_configured_topic(
+                node_name, PARAMETER_CONFIGURED_INPUT[node_name]
+            )
+            if source not in reaching:
+                reaching.add(source)
+                changed = True
+
+    # A forwarder wired into a loop would leave the wheels unreachable while
+    # every membership check below still passed.
+    if WHEELS in reaching:
+        raise Unreadable(
+            "the chain of forwarding nodes leads back to the wheel topic, so "
+            "a velocity could reach the wheels without passing the gate"
+        )
+    return frozenset(reaching)
 
 
 def docstring_ids(tree: ast.AST) -> set[int]:
@@ -330,6 +383,27 @@ class LaunchFile:
             and getattr(node.func, "id", None) in NODE_ACTIONS
         ]
 
+    def included_launch_files(self) -> set[str]:
+        """The launch files this one pulls in with IncludeLaunchDescription.
+
+        Read from the include ACTION rather than from the text of the file,
+        because the path is usually held in a variable assigned further up,
+        and because the file name and the word IncludeLaunchDescription both
+        go on appearing in an import line and a leftover variable after the
+        include itself has been deleted. A text search passes on that; this
+        does not.
+        """
+        found: set[str] = set()
+        for node in ast.walk(self.tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "id", None) != "IncludeLaunchDescription":
+                continue
+            for text in self.reachable_strings(node):
+                if text.endswith(".launch.py"):
+                    found.add(Path(text).name)
+        return found
+
     def started_node_names(self) -> set[str]:
         """The `name=` of every node this file starts."""
         return {
@@ -424,7 +498,7 @@ class LaunchFile:
         )
         if name not in PARAMETER_CONFIGURED_OUTPUT:
             return None
-        return parameter_configured_output(name)
+        return parameter_configured_topic(name, PARAMETER_CONFIGURED_OUTPUT[name])
 
     def is_a_lifecycle_manager(self, call: ast.Call) -> bool:
         package = self.text_argument(call, "package") or ""
@@ -624,12 +698,18 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
     `test_every_velocity_emitting_node_is_remapped_to_the_request_topic`
     searches each node's text for "remappings=gated", so renaming the
     variable breaks it while the robot still behaves; and its
-    `test_the_remap_points_at_the_request_topic` looks for the exact source
-    line `gated = [("/cmd_vel", "/cmd_vel_requested")]` anywhere in the file,
-    so a second assignment further down, or the list being built up in
-    pieces, changes where the robot drives and still passes. The checks below
-    follow the list to the topic names it actually holds, and refuse to pass
-    when it is assigned twice or changed in place.
+    `test_the_remap_points_away_from_the_wheels` looks for the exact source
+    line `gated = [("/cmd_vel", "/cmd_vel_raw")]` anywhere in the file, so a
+    second assignment further down, or the list being built up in pieces,
+    changes where the robot drives and still passes. The checks below follow
+    the list to the topic names it actually holds, and refuse to pass when it
+    is assigned twice or changed in place.
+
+    Since the Collision Monitor was wired in, "behind the gate" is two hops
+    rather than one: Nav2 publishes cmd_vel_raw, the monitor forwards to
+    cmd_vel_requested, and the gate rules on that. These checks follow the
+    chain with topics_that_reach_the_gate() instead of naming the one topic
+    that used to be the whole answer.
     """
 
     def setUp(self) -> None:
@@ -648,6 +728,7 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
 
     def test_every_program_that_steers_is_wired_to_the_request_topic(self) -> None:
         sources = self.velocity_sources()
+        reaching = topics_that_reach_the_gate()
 
         self.assertTrue(sources, "no steering node was found in any launch file")
         for launch, call in sources:
@@ -656,18 +737,29 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
                 if configured is not None:
                     # This one names its output topic in a parameter file
                     # instead of remapping, so that is where the answer is.
-                    self.assertEqual(
+                    self.assertIn(
                         configured,
-                        REQUEST,
+                        reaching,
                         "this node steers the robot and is not behind the gate",
                     )
                     continue
 
-                self.assertIn(
-                    (WHEELS, REQUEST),
-                    launch.remappings(call),
-                    "this node steers the robot and is not behind the gate",
+                targets = {
+                    destination
+                    for source, destination in launch.remappings(call)
+                    if source == WHEELS
+                }
+                self.assertTrue(
+                    targets,
+                    "this node steers the robot and its cmd_vel is not "
+                    "remapped anywhere, so it publishes straight to the wheels",
                 )
+                for destination in targets:
+                    self.assertIn(
+                        destination,
+                        reaching,
+                        "this node steers the robot and is not behind the gate",
+                    )
 
     def test_the_recovery_behaviours_are_behind_the_gate_too(self) -> None:
         # Named on its own because it is the easiest one to forget: it is not
@@ -678,10 +770,74 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
             for launch, call in self.velocity_sources()
             if launch.text_argument(call, "executable") == "behavior_server"
         ]
+        reaching = topics_that_reach_the_gate()
 
         self.assertTrue(gated, "behavior_server is not started by any launch file")
         for pairs in gated:
-            self.assertIn((WHEELS, REQUEST), pairs)
+            targets = {
+                destination for source, destination in pairs if source == WHEELS
+            }
+            self.assertTrue(targets, "behavior_server's cmd_vel is not remapped")
+            for destination in targets:
+                self.assertIn(destination, reaching)
+
+    def test_a_steering_node_that_needs_a_forwarder_is_launched_beside_one(
+        self,
+    ) -> None:
+        # topics_that_reach_the_gate() proves a forwarding node is CONFIGURED
+        # to carry a velocity on to the gate. It cannot prove anybody starts
+        # it. Remap Nav2 onto the monitor's input and then not launch the
+        # monitor, and every check above still passes while the robot sits
+        # still: nothing arrives on cmd_vel_requested, the gate's
+        # command_timeout fires, and the cause is invisible from the tests.
+        #
+        # Fails safe rather than dangerous, which is why it is a separate test
+        # and not a louder version of the ones above - but a robot that cannot
+        # move and cannot say why is its own kind of problem.
+        forwarders = {
+            parameter_configured_topic(node_name, PARAMETER_CONFIGURED_INPUT[node_name]): node_name
+            for node_name in PARAMETER_CONFIGURED_OUTPUT
+        }
+
+        for launch, call in self.velocity_sources():
+            if launch.parameter_configured_output(call) is not None:
+                continue
+            for source, destination in launch.remappings(call):
+                if source != WHEELS or destination not in forwarders:
+                    continue
+                needed = forwarders[destination]
+                with self.subTest(node=launch.describe(call), forwarder=needed):
+                    reachable = self.launch_files_reachable_from(launch)
+                    started = any(
+                        other.text_argument(other_call, "executable") == needed
+                        or other.text_argument(other_call, "name") == needed
+                        for other in reachable
+                        for other_call in other.node_actions()
+                    )
+                    self.assertTrue(
+                        started,
+                        f"this node publishes to {destination}, which only "
+                        f"reaches the gate by way of {needed}, and no launch "
+                        f"file reachable from {launch.name} starts {needed}. "
+                        "Nothing would forward its velocity, so the robot "
+                        "would sit still with no indication why.",
+                    )
+
+    def launch_files_reachable_from(self, start: LaunchFile) -> list[LaunchFile]:
+        """`start` and everything it includes, directly or through another."""
+        by_name = {launch.name: launch for launch in self.launches}
+        seen = {start.name}
+        pending = [start]
+        reachable = [start]
+        while pending:
+            current = pending.pop()
+            for name in current.included_launch_files():
+                if name in seen or name not in by_name:
+                    continue
+                seen.add(name)
+                reachable.append(by_name[name])
+                pending.append(by_name[name])
+        return reachable
 
     def test_navigation_declares_no_velocity_source_this_file_has_not_heard_of(
         self,

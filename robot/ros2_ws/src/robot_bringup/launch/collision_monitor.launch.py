@@ -2,21 +2,33 @@
 
     ros2 launch robot_bringup collision_monitor.launch.py
 
-NOT WIRED IN YET, AND NOT YET RUN. Two things are still true of this file:
+navigation.launch.py includes this file, so an ordinary navigation run brings
+the monitor up with Nav2 remapped onto its input. Launching it directly, as
+above, is for working on the monitor by itself.
 
-1. `nav2_collision_monitor` is not installed in the development container, so
-   this launch file has never been executed and the parameter names in
-   config/collision_monitor.yaml have never been accepted by the node they
-   are written for. `rosdep install` fetches the package; the first run is
-   bring-up work, not a regression test.
+WHAT HAS BEEN OBSERVED, AND WHAT HAS NOT (2026-09-23, first run ever):
 
-2. Nothing feeds it yet. Today Nav2's velocity sources are remapped straight
-   onto /cmd_vel_requested, so the monitor sits in the graph with an empty
-   input. Connecting it is a one-line change in navigation.launch.py - point
-   the `gated` remap at /cmd_vel_raw instead of /cmd_vel_requested - which
-   belongs to whoever owns that file, and which must be made for ALL of the
-   velocity sources at once. A source left pointing at /cmd_vel_requested
-   would simply skip this layer, silently.
+1. Run on its own against ROS_DOMAIN_ID=42, the node starts, accepts every
+   parameter name in config/collision_monitor.yaml, creates the Scan source
+   and both polygons, reaches the active state and bonds to its lifecycle
+   manager. Before this the configuration had never been loaded by the node
+   it was written for, and the parameter names were checked only against the
+   Nav2 Jazzy documentation.
+
+2. The topology was confirmed live rather than from the launch file:
+   /cmd_vel_requested had exactly one publisher (this node), /cmd_vel_raw one
+   subscriber (this node), and **/cmd_vel did not exist at all** - the node
+   opened no publisher on the wheel topic. That is the single most dangerous
+   line in this configuration, and it is now checked against a running node
+   and not only against two files.
+
+3. The StopZone it published matched the derived geometry exactly: x from
+   -0.20 to 0.60, y +/-0.15, in base_footprint.
+
+NOT yet observed: this node slowing or stopping a real velocity. That needs
+something driving, and nothing has navigated yet. The zones are derived from
+the URDF placeholders, so what it does to a real obstacle remains a claim.
+Its wiring is proven; its behaviour is not.
 
 SAFETY: this node cannot drive the robot. It has no path to /cmd_vel.
 

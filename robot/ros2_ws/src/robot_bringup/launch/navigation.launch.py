@@ -19,10 +19,28 @@ under goals while slam_toolbox mapped it. Mapping stays in slam.launch.py,
 which launches nothing that can drive.
 
 SAFETY: Nav2 is a motion source, not a motion authority. Every node below
-that can emit a velocity has cmd_vel remapped to cmd_vel_requested, so its
-output is a request the safety gate decides on:
+that can emit a velocity has cmd_vel remapped away from the wheels, so its
+output is a request that is decided on before it reaches them:
 
-    Nav2 / teleop  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel
+    Nav2  ->  /cmd_vel_raw  ->  collision_monitor  ->  /cmd_vel_requested
+                                                              |
+                                                    robot_safety (the gate)
+                                                              |
+                                                          /cmd_vel
+
+There are two layers here and they are not the same thing. The Collision
+Monitor is a *constraint*: it reads the scan directionally and can only slow
+or stop a velocity somebody else asked for. The gate behind it is the
+*authority*: it is the only publisher of /cmd_vel, and it applies its own
+blunter, omnidirectional check afterwards. Neither replaces the other, and
+the monitor being present is not a reason to relax the gate.
+
+The monitor is wired in unconditionally, and on purpose. Making it optional
+would mean two remap variants per steering node, and a node left on the old
+topic would skip the layer silently - the failure this file is least able to
+notice. If the monitor is absent or dies, nothing arrives on
+/cmd_vel_requested, the gate's command_timeout fires and the robot stops:
+losing the layer stops the robot rather than freeing it.
 
 That includes behavior_server. Its recovery behaviours drive the robot, and
 they run precisely when something has already gone wrong, so an unremapped
@@ -40,8 +58,9 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition, UnlessCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -81,8 +100,18 @@ def generate_launch_description() -> LaunchDescription:
     map_yaml = LaunchConfiguration("map")
     use_slam = LaunchConfiguration("slam")
 
-    # The one remap that keeps Nav2 behind the gate.
-    gated = [("/cmd_vel", "/cmd_vel_requested")]
+    # The one remap that keeps Nav2 behind the gate. It points at the
+    # Collision Monitor's input rather than straight at the gate's, so every
+    # Nav2 velocity passes the directional check before the gate rules on it.
+    # Changing this back to /cmd_vel_requested does not open a path to the
+    # wheels - the gate is still the only publisher there - but it does skip
+    # the constraint layer, which is why the topology tests follow this list
+    # to the topic it names instead of trusting the variable.
+    gated = [("/cmd_vel", "/cmd_vel_raw")]
+
+    collision_monitor_launch = str(
+        bringup_share / "launch" / "collision_monitor.launch.py"
+    )
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -161,6 +190,15 @@ def generate_launch_description() -> LaunchDescription:
             name="waypoint_follower",
             output="screen",
             parameters=[nav2_params],
+        ),
+
+        # The constraint layer between Nav2 and the gate. Brought in by
+        # including its own launch file rather than by repeating the node
+        # here, so there is one definition of how the monitor is configured
+        # and one lifecycle manager owning it - and so it can still be run
+        # and stopped on its own.
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(collision_monitor_launch),
         ),
 
         # The gate, with the localization checks that only apply once

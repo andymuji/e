@@ -687,8 +687,63 @@ class NavigationTopologyTests(unittest.TestCase):
 
                 self.assertIn("remappings=gated", node_block)
 
-    def test_the_remap_points_at_the_request_topic(self) -> None:
-        self.assertIn('gated = [("/cmd_vel", "/cmd_vel_requested")]', self.navigation)
+    def test_the_remap_points_away_from_the_wheels(self) -> None:
+        # Nav2's velocities go to the Collision Monitor's input, and the
+        # monitor forwards what survives to the gate's. This assertion is the
+        # weak one of the pair on purpose: it reads the source line as text,
+        # so it catches the line being deleted or reworded, and it is
+        # test_cmd_vel_topology.py that follows the list to the topic it names
+        # and on through the monitor to the gate.
+        #
+        # What matters at both hops is the same thing: the destination is not
+        # the wheels. Only the gate publishes there.
+        self.assertIn('gated = [("/cmd_vel", "/cmd_vel_raw")]', self.navigation)
+
+    def test_navigation_starts_the_monitor_its_remap_depends_on(self) -> None:
+        # The remap above is only safe because something is listening on
+        # cmd_vel_raw and forwarding to cmd_vel_requested. Including the
+        # monitor's own launch file is what puts it there.
+        #
+        # Read from the include ACTION, not from the text. Both the file name
+        # and the word IncludeLaunchDescription survive in an import line and
+        # a leftover variable after the include itself is deleted, so a
+        # substring check passes on a navigation stack that starts no monitor
+        # at all - which is how this test read when it was first written.
+        import ast as _ast
+
+        tree = _ast.parse(self.navigation)
+        included: set[str] = set()
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            if getattr(node.func, "id", None) != "IncludeLaunchDescription":
+                continue
+            included |= {
+                inner.value
+                for inner in _ast.walk(node)
+                if isinstance(inner, _ast.Constant)
+                and isinstance(inner.value, str)
+                and inner.value.endswith(".launch.py")
+            } | {
+                text
+                for name in _ast.walk(node)
+                if isinstance(name, _ast.Name)
+                for assignment in _ast.walk(tree)
+                if isinstance(assignment, _ast.Assign)
+                and any(
+                    getattr(target, "id", None) == name.id
+                    for target in assignment.targets
+                )
+                for text in (
+                    inner.value
+                    for inner in _ast.walk(assignment.value)
+                    if isinstance(inner, _ast.Constant)
+                    and isinstance(inner.value, str)
+                    and inner.value.endswith(".launch.py")
+                )
+            }
+
+        self.assertIn("collision_monitor.launch.py", included)
 
     def test_navigation_runs_the_gate_with_the_localization_checks(self) -> None:
         # safety.yaml has require_localization false, because teleop has no

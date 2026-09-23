@@ -67,11 +67,17 @@
 # CollisionMonitorGeometryTests recomputes all of it and fails on drift.
 # Change the URDF or base_dynamics.yaml; never this file.
 #
-# NOT YET RUN ANYWHERE. nav2_collision_monitor is not installed in the
-# development container, so this configuration has never been loaded by the
-# node it is written for. The geometry is checked by tests; the parameter
-# names are checked only against the Nav2 Jazzy documentation and source.
-# Treat the first bring-up as bring-up.
+# LOADED AND ACTIVE, 2026-09-23. nav2_collision_monitor is installed, and this
+# file has now been accepted by the node it was written for: every parameter
+# name below was taken, the Scan source and both polygons were created, the
+# node reached the active state, and the StopZone it published back matched the
+# derived geometry exactly. Live, /cmd_vel_requested had one publisher (this
+# node) and /cmd_vel did not exist at all.
+#
+# What is still unproven is behaviour, not wiring: nothing has navigated yet,
+# so this node has never actually slowed or stopped a moving robot, and the
+# zones are derived from the placeholder URDF. See
+# launch/collision_monitor.launch.py for the full record of that run.
 collision_monitor:
   ros__parameters:
     use_sim_time: true
