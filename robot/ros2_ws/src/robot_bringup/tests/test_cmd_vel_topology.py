@@ -392,6 +392,13 @@ class LaunchFile:
         go on appearing in an import line and a leftover variable after the
         include itself has been deleted. A text search passes on that; this
         does not.
+
+        Only the SOURCE argument is read, not the whole call. An include also
+        carries launch_arguments, and simulation.launch.py already passes a
+        list of strings through them; a launch_argument whose value happened
+        to end in .launch.py would otherwise be read as another include, and
+        this file would be credited with starting something it never starts.
+        That is the false-reachable direction, which is the dangerous one.
         """
         found: set[str] = set()
         for node in ast.walk(self.tree):
@@ -399,7 +406,15 @@ class LaunchFile:
                 continue
             if getattr(node.func, "id", None) != "IncludeLaunchDescription":
                 continue
-            for text in self.reachable_strings(node):
+            source = node.args[0] if node.args else self.keyword(
+                node, "launch_description_source"
+            )
+            if source is None:
+                raise Unreadable(
+                    f"{self}: an IncludeLaunchDescription with no readable "
+                    "source, so what it pulls in cannot be read off this file"
+                )
+            for text in self.reachable_strings(source):
                 if text.endswith(".launch.py"):
                     found.add(Path(text).name)
         return found
@@ -794,10 +809,20 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
         # Fails safe rather than dangerous, which is why it is a separate test
         # and not a louder version of the ones above - but a robot that cannot
         # move and cannot say why is its own kind of problem.
-        forwarders = {
-            parameter_configured_topic(node_name, PARAMETER_CONFIGURED_INPUT[node_name]): node_name
-            for node_name in PARAMETER_CONFIGURED_OUTPUT
-        }
+        forwarders = {}
+        for node_name in PARAMETER_CONFIGURED_OUTPUT:
+            # Same missing-pair case topics_that_reach_the_gate() refuses, and
+            # it is refused the same way here. Indexing straight into the
+            # other table raises KeyError, which fails the test but says
+            # nothing about why.
+            input_parameter = PARAMETER_CONFIGURED_INPUT.get(node_name)
+            if input_parameter is None:
+                raise Unreadable(
+                    f"{node_name} has a parameter naming where its velocity "
+                    "goes but none naming where it comes from, so the path "
+                    "through it cannot be followed"
+                )
+            forwarders[parameter_configured_topic(node_name, input_parameter)] = node_name
 
         for launch, call in self.velocity_sources():
             if launch.parameter_configured_output(call) is not None:
@@ -824,8 +849,24 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
                     )
 
     def launch_files_reachable_from(self, start: LaunchFile) -> list[LaunchFile]:
-        """`start` and everything it includes, directly or through another."""
-        by_name = {launch.name: launch for launch in self.launches}
+        """`start` and everything it includes, directly or through another.
+
+        An include names a path, and what is matched here is its basename, so
+        two packages shipping a launch file of the same name would be
+        indistinguishable and one would silently shadow the other. Every name
+        in the workspace is unique today, and this refuses to guess if that
+        ever stops being true - the point of this file is that a launch file
+        added tomorrow, in a package that does not exist yet, is covered.
+        """
+        by_name: dict[str, LaunchFile] = {}
+        for launch in self.launches:
+            if launch.name in by_name:
+                raise Unreadable(
+                    f"two launch files are called {launch.name} "
+                    f"({by_name[launch.name]} and {launch}), so an include "
+                    "naming it cannot be followed to one of them"
+                )
+            by_name[launch.name] = launch
         seen = {start.name}
         pending = [start]
         reachable = [start]

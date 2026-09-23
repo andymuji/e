@@ -26,8 +26,11 @@ PACKAGE_PATHS=()
 for pkg in "$SRC"/*/; do
   pkg=${pkg%/}
   # A package directory holding a module directory of the same name is an
-  # importable one; robot_bringup and robot_description hold only launch
-  # files and config, so they are not on the path and never were.
+  # importable one. robot_description holds only launch files, config and
+  # meshes, so it is not on the path. robot_bringup IS: it carries
+  # world_to_map, which MapGeneratorTests imports. Leave it out of PYTHONPATH
+  # and those five tests fail with ModuleNotFoundError rather than skipping,
+  # which reads like a broken repository instead of a broken command line.
   [[ -d $pkg/$(basename "$pkg") ]] && PACKAGE_PATHS+=("$pkg")
 done
 PACKAGES=$(IFS=:; echo "${PACKAGE_PATHS[*]}")

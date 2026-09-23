@@ -709,39 +709,64 @@ class NavigationTopologyTests(unittest.TestCase):
         # a leftover variable after the include itself is deleted, so a
         # substring check passes on a navigation stack that starts no monitor
         # at all - which is how this test read when it was first written.
+        # Two things this has to get right, both of which an earlier draft of
+        # it got wrong:
+        #
+        # Only the include's SOURCE argument is read, not the whole call. An
+        # include also carries launch_arguments - simulation.launch.py passes
+        # a list of strings through them - and a launch_argument ending in
+        # .launch.py would otherwise count as an include of a file nothing
+        # starts.
+        #
+        # A name assigned more than once is refused rather than resolved. The
+        # live value is the last assignment, so collecting strings from all of
+        # them means a stale first assignment to the right file keeps this
+        # passing after the real one has been pointed somewhere else. That is
+        # the same "passes for the wrong reason" shape as the substring check
+        # this replaced, one level deeper.
         import ast as _ast
 
         tree = _ast.parse(self.navigation)
+
+        assigned: dict[str, list[_ast.expr]] = {}
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, _ast.Name):
+                        assigned.setdefault(target.id, []).append(node.value)
+
+        def launch_files_in(expression: _ast.expr, seen: frozenset[str]) -> set[str]:
+            found: set[str] = set()
+            for node in _ast.walk(expression):
+                if (
+                    isinstance(node, _ast.Constant)
+                    and isinstance(node.value, str)
+                    and node.value.endswith(".launch.py")
+                ):
+                    found.add(node.value.rsplit("/", 1)[-1])
+                elif isinstance(node, _ast.Name) and node.id not in seen:
+                    settings = assigned.get(node.id, [])
+                    self.assertLessEqual(
+                        len(settings),
+                        1,
+                        f"{node.id} is assigned {len(settings)} times, so what "
+                        "it holds cannot be read off this file",
+                    )
+                    for value in settings:
+                        found |= launch_files_in(value, seen | {node.id})
+            return found
+
         included: set[str] = set()
         for node in _ast.walk(tree):
             if not isinstance(node, _ast.Call):
                 continue
             if getattr(node.func, "id", None) != "IncludeLaunchDescription":
                 continue
-            included |= {
-                inner.value
-                for inner in _ast.walk(node)
-                if isinstance(inner, _ast.Constant)
-                and isinstance(inner.value, str)
-                and inner.value.endswith(".launch.py")
-            } | {
-                text
-                for name in _ast.walk(node)
-                if isinstance(name, _ast.Name)
-                for assignment in _ast.walk(tree)
-                if isinstance(assignment, _ast.Assign)
-                and any(
-                    getattr(target, "id", None) == name.id
-                    for target in assignment.targets
-                )
-                for text in (
-                    inner.value
-                    for inner in _ast.walk(assignment.value)
-                    if isinstance(inner, _ast.Constant)
-                    and isinstance(inner.value, str)
-                    and inner.value.endswith(".launch.py")
-                )
-            }
+            source = node.args[0] if node.args else None
+            self.assertIsNotNone(
+                source, "an IncludeLaunchDescription with no source argument"
+            )
+            included |= launch_files_in(source, frozenset())
 
         self.assertIn("collision_monitor.launch.py", included)
 
