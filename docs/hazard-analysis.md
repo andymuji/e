@@ -171,8 +171,14 @@ wrong to record that it has.** The Collision Monitor is an extra constraint
 layered *in front of* the gate; it can only ever make the robot more cautious,
 never less. The gate behind it still takes the nearest obstacle in every
 direction, so the robot still stops in the doorway. What the Collision Monitor
-does is establish the directional layer, in configuration, derived from the
-same dimensions, so that the remaining decision is a narrow one.
+does is establish the directional layer, derived from the same dimensions, so
+that the remaining decision is a narrow one. As of 2026-09-23 that layer is no
+longer only configuration: the node is installed, included by
+`navigation.launch.py`, and has been run, reaching the active state and
+publishing back a stop zone matching the derived geometry. It has still never
+slowed or stopped a *moving* robot, because nothing has navigated yet, so its
+behaviour against a real obstacle remains unproven - and H-04 is untouched
+either way.
 
 **That remaining decision is a change to `robot_safety`, which this round did
 not make.** Narrowing the gate's field of view is a real safety change to the

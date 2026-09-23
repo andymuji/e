@@ -52,8 +52,8 @@ measured values before any hardware test.
 - `robot_telemetry` only listens. It publishes nothing - never a velocity, never `emergency_stop_reset`. A recorder that can act is no longer a witness.
 - The operator console may request destinations and work the *software* stop. It never publishes a velocity, and the physical stop is independent of it.
 - Nothing in `robot_voice` publishes `emergency_stop_reset`. A voice that can undo a stop is not a stop.
-- Motion path: `/cmd_vel_requested` -> `robot_safety` -> `/cmd_vel` -> driver or Gazebo DiffDrive. Nothing else publishes `/cmd_vel`.
-- Nav2 is a motion source, not a motion authority. Every Nav2 node that can emit a velocity has `cmd_vel` remapped to `cmd_vel_requested`, including `behavior_server`: its recovery behaviours drive the robot, and they run when something has already gone wrong.
+- Motion path: `/cmd_vel_requested` -> `robot_safety` -> `/cmd_vel` -> driver or Gazebo DiffDrive. Nothing else publishes `/cmd_vel`. Under Nav2 there is one more layer in front: `/cmd_vel_raw` -> `nav2_collision_monitor` -> `/cmd_vel_requested`. The monitor is a constraint, never an authority - it can only reduce a velocity already asked for, and it has no path to `/cmd_vel`.
+- Nav2 is a motion source, not a motion authority. Every Nav2 node that can emit a velocity has `cmd_vel` remapped off the wheels - onto `cmd_vel_raw`, the Collision Monitor's input - including `behavior_server`: its recovery behaviours drive the robot, and they run when something has already gone wrong. All velocity sources must move together; one left pointing at `cmd_vel_requested` skips the monitor silently.
 - The safety gate is never put under lifecycle management. The lifecycle manager deactivates its nodes on failure, and the gate has to still be running then.
 - `stop_distance` and `caution_distance` are derived from `robot_bringup/config/base_dynamics.yaml`, and the Nav2 footprint and inflation radius from the URDF dimensions. Do not hand-edit them; change the inputs. The tests recompute both and fail on drift, and `.claude/hooks/guard-derived-distances.sh` refuses agent edits that touch either value in `safety.yaml`.
 

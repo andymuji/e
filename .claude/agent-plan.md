@@ -406,3 +406,102 @@ Write/Edit. That is the exact bypass described under "Known gap" above: the
 repo's guard hook only sees Write/Edit. Both ignored it and said so. Tell
 future agents explicitly to use Write/Edit, and treat an agent that edited
 safety configuration through Bash as an unreviewed change.
+
+---
+
+# Single session: 2026-09-23 — the guard, the monitor, and the same blocker
+
+Four of the nine open items are closed. The four that need the robot to move
+are not, and are blocked on the same thing they were blocked on in September.
+
+## Closed
+
+**The guard hook gap is shut.** `guard-derived-distances.sh` now matches
+`Bash` as well as `Write|Edit`. The two branches are deliberately different:
+Write/Edit inspects the new content and denies only when a derived line is
+touched, while Bash cannot - a payload holds the command, not the file it
+would leave behind - so it refuses any non-read-only command naming a guarded
+file and sends the caller to Write/Edit. Blunter on purpose, and fails closed.
+
+It also has the test it never had, which is how the hole survived a whole
+round. Run against the previous hook it fails on exactly the nine Bash cases
+and passes the thirteen Write/Edit ones. `check.sh` runs it, so CI does too.
+
+**The eight stale worktree branches are gone.** All were fully merged with
+zero unique commits; deleted with `-d`, so git would have refused any that
+were not. Local only - they were never pushed. `origin/track-b` still exists
+and looks merged, but it was not on the list, so it was left alone.
+
+**The Collision Monitor is installed, wired in and has been run.** It turns
+out `nav2_collision_monitor` was already an `exec_depend` in
+`robot_bringup/package.xml` and the devcontainer's `postCreateCommand` already
+runs `rosdep install` - so reproducibility was never missing, this container
+was just stale. One `apt install` and it was there.
+
+**Wiring it was not the one-line change this file predicted.** The monitor
+listens on `cmd_vel_raw` and emits `cmd_vel_requested`; Nav2 was remapped
+straight onto `cmd_vel_requested`. Adding the node alone would have left it
+reading a topic nobody published: robot still, no layer, no error message.
+Nav2's remap had to move to `cmd_vel_raw` in the same change. It is wired
+unconditionally rather than behind a flag, because an optional layer means two
+remap variants per steering node and a node left behind skips the constraint
+silently.
+
+"Behind the gate" is therefore two hops now, and the topology tests follow the
+chain rather than naming one topic: start at what the gate listens to, add the
+input of any node whose output already reaches it, repeat. A further layer can
+be inserted later without touching the test.
+
+Three mistakes were seeded. Monitor publishing to `cmd_vel`: caught. Chain
+broken at the monitor's input: caught. **Include deleted while the import and
+the variable stayed behind: NOT caught** by the first version of either new
+test, because both matched text that survives the deletion - the exact failure
+this repo keeps warning about, committed by the agent writing the warning.
+Both now read the include action from the AST, and both catch it.
+
+## Observed live, ROS_DOMAIN_ID=42
+
+Monitor standalone: active and bonded, every parameter name accepted, both
+polygons created, StopZone published back at exactly the derived geometry
+(x -0.20..0.60, y +/-0.15, base_footprint). `/cmd_vel` **did not exist** -
+the node opens no publisher on the wheel topic.
+
+Full `navigation.launch.py`, which is also the first run of the new include:
+
+- `/cmd_vel_raw`: **4 publishers** - `controller_server` once and
+  `behavior_server` three times, one per recovery behaviour. The remap moved
+  all four together.
+- `/cmd_vel_requested`: one publisher, `collision_monitor`.
+- `/cmd_vel`: one publisher, `safety_controller`.
+- `/emergency_stop_reset`: zero publishers.
+- `ros2 lifecycle nodes` lists ten managed nodes - the monitor joined them -
+  and `safety_controller` is still not among them and has no lifecycle
+  interface at all.
+
+## Item 5, half answered without a run
+
+**The asymmetry is deliberate, and it is documented and tested.** `safety.yaml`
+has `require_localization: false` because it drives the teleop simulation,
+which has nobody localizing it - a gate demanding a pose there would simply
+refuse to move and the operator would learn to ignore it.
+`safety_navigation.yaml` has it `true` because under Nav2 the pose *is* what
+chooses where to drive. Both files say so in comments, and
+`test_autonomous_navigation_requires_localization` asserts it.
+
+What is still unanswered is the other half: the stop has never *fired*. That
+needs a run.
+
+## Still open, and still the same four things
+
+Items 1, 2, 3 and 4 - the goal-reaching run, the driven map, the recording,
+and the tuning - remain blocked on `simulation.launch.py safety:=false`,
+refused again this session by the permission classifier, on the name of the
+argument rather than its effect. That is now five refusals across four
+sessions. The user has authorised the flag explicitly and in writing, in the
+only arrangement it is valid for; what is missing is a permission rule that
+lets the tooling act on that decision, not a decision.
+
+No attempt was made to reconstruct the topology by hand. H-04 is untouched.
+
+Half of item 6 is also still open for the same reason: the monitor has never
+slowed or stopped a *moving* robot, because nothing has moved.

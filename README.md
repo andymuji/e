@@ -33,8 +33,14 @@ has built one, bought one, or measured one.
 ### What does not work yet, and why
 
 - **The robot has never driven to a destination.** Not in simulation, not
-  anywhere. The stack starts up and the wiring is correct, but the first
-  goal-reaching run has not happened.
+  anywhere. The stack starts up and the wiring is correct — verified live,
+  repeatedly — but the first goal-reaching run has not happened. What stands
+  in the way is not a bug: driving under Nav2 in simulation needs
+  `simulation.launch.py safety:=false`, which hands the single gate to
+  `navigation.launch.py` instead of stacking two of them on `/cmd_vel`, and
+  automated tooling keeps refusing that argument on its name. Until a run
+  happens, everything below about *navigating* is wiring that has been
+  inspected, not behaviour that has been seen.
 - **Every measurement in the system is a guess.** How big the robot is, how
   fast it goes, how hard it can brake — all placeholders. The stopping
   distances are calculated from those guesses, so they are consistent with
@@ -156,7 +162,7 @@ These projects provide the first navigation stack. Pin versions to the chosen RO
 2. Run SLAM Toolbox and save a map while driving slowly around one floor.
 3. Load that map into Nav2 AMCL and verify localization before enabling autonomous motion.
 4. Configure Nav2's robot footprint, inflation radius, maximum speeds, stopping behavior, and recovery actions from measured robot dimensions.
-5. Add Collision Monitor as an independent safety layer. Test sensor timeouts and stop behavior before testing people. **Configured, not yet run:** `robot_bringup/config/collision_monitor.yaml` and `collision_monitor.launch.py` exist, with zones derived from the URDF and the same braking distances as the gate, and tests that fail on drift. It is deliberately not wired into `navigation.launch.py` yet, and `nav2_collision_monitor` is not installed in the dev container, so it has never been loaded by the node it is written for.
+5. Add Collision Monitor as an independent safety layer. Test sensor timeouts and stop behavior before testing people. **Wired in and loaded; not yet proven against a moving robot.** `nav2_collision_monitor` is installed, `collision_monitor.launch.py` is included by `navigation.launch.py`, and the node has been run: it accepts every parameter in `robot_bringup/config/collision_monitor.yaml`, creates both zones, and reaches the active state. Observed live in the full navigation stack, the request path is `controller_server` plus `behavior_server`'s three recovery behaviours → `cmd_vel_raw` (4 publishers) → `collision_monitor` → `cmd_vel_requested` → `robot_safety` → `cmd_vel` (1 publisher, `safety_controller`). What has **not** been observed is this layer slowing or stopping a robot that is actually moving, because nothing has navigated yet, and its zones are still derived from the placeholder URDF.
 6. Wrap Nav2 Simple Commander in the project's `robot_locations` package and expose only allow-listed actions to voice and web clients.
 
 Do not use the voice service or camera-based suggestions as a substitute for localization or obstacle sensing. They may request a named goal, but Nav2 and the safety controller decide whether and how the robot moves.
@@ -240,8 +246,14 @@ The physical test procedure is documented in [docs/safety-test-procedure.md](doc
 safety gate. Teleop drives it through `/cmd_vel_requested`:
 
 ```text
-teleop / Nav2  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel  ->  Gazebo DiffDrive
+teleop           ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel  ->  Gazebo DiffDrive
+Nav2  ->  /cmd_vel_raw  ->  collision_monitor  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel
 ```
+
+Teleop asks the gate directly. Under autonomous navigation there is one more
+layer in front of it: the Collision Monitor, which reads the scan directionally
+and can only ever reduce a velocity somebody else asked for. It is a
+constraint, not an authority — it has no path to `/cmd_vel`.
 
 Only `robot_safety` publishes `/cmd_vel`, and only `/cmd_vel` is bridged into
 the simulator, so there is no path from a motion source to the wheels that
