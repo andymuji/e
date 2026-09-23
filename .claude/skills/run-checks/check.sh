@@ -57,6 +57,27 @@ if [[ $what == tests || $what == all ]]; then
       rc=1
     fi
   done
+
+  # The guard hook in front of the derived safety distances. Not a Python
+  # suite and not in a ROS package, so the glob above cannot find it, but it
+  # is repo safety machinery and it spent a whole round of work with a hole
+  # in it. Takes no flags, so "${@:2}" is deliberately not passed on.
+  # Needs jq, which the devcontainer has; reported as skipped rather than
+  # failed where it is absent, so a bare Codespace still runs the rest.
+  guard_test=.claude/hooks/test-guard-derived-distances.sh
+  if [[ -x $guard_test ]]; then
+    if command -v jq >/dev/null 2>&1; then
+      if out=$("$guard_test" 2>&1); then
+        printf '%-48s %s\n' ".claude/hooks" "$(printf '%s\n' "$out" | tail -1)"
+      else
+        printf '%-48s FAILED\n' ".claude/hooks"
+        printf '%s\n' "$out"
+        rc=1
+      fi
+    else
+      printf '%-48s %s\n' ".claude/hooks" "skipped (no jq)"
+    fi
+  fi
 fi
 
 if [[ $what == compile || $what == all ]]; then
