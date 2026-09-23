@@ -84,7 +84,10 @@ source install/setup.bash
 
 Run the simulation with `ros2 launch robot_bringup simulation.launch.py`, and
 drive it from a second terminal with `ros2 launch robot_bringup teleop.launch.py`.
-Where there is no display, add `rviz:=false headless:=true`. Map with
+Where there is no display, add `rviz:=false headless:=true`. To watch it
+from another computer, start `ros2 launch robot_bringup viewer.launch.py` and
+connect the Foxglove app to port 8765; the viewer is watch-only and its test
+fails if it is ever allowed to publish, call services, or set parameters. Map with
 `slam.launch.py` (`navigation.launch.py slam:=true` navigates on the map as it
 is being built), then navigate with `navigation.launch.py`, which now defaults
 to the committed `test_room` map.
