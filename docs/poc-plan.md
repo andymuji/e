@@ -19,7 +19,7 @@ bought later.
 
 | Part | Job |
 |---|---|
-| Raspberry Pi 4 (already owned) | The robot's computer. Runs the lidar, the safety gate, and the motor driver program. |
+| Raspberry Pi 4 (already owned) | The robot's computer. Runs all the ROS software, including the map builder. |
 | LD14P lidar kit | Spins and measures the distance to every wall and object around it. This is what the map is made from. Plugs into the Pi by USB. |
 | Mecanum chassis, 4 motors with wheel sensors | The body and wheels. The wheel sensors count how far each wheel turned. |
 | 4 × BTS7960 motor drivers | One per motor. They turn small control signals into the heavy current the motors need. |
@@ -28,7 +28,7 @@ bought later.
 | USB power bank (already owned, must supply 5 V 3 A) | Powers the Pi, kept separate from the motor battery. |
 | Wire, 30 A fuse holder, terminals | Connect the battery to the drivers. The fuse sits right at the battery. |
 | **Later:** emergency stop button + 40 A relay | Cuts power to the motors when pressed, whatever the software is doing. |
-| A laptop | Where a person drives the robot from and watches the map form. |
+| A Mac laptop | Where a person drives the robot from and watches the map form. It doesn't need ROS installed. |
 
 ## How it fits together
 
@@ -38,7 +38,7 @@ Motor power:
   Battery − ─────────────────────────────────────> 4 × BTS7960
 
 Control:
-  Laptop  ~~Wi-Fi~~>  Pi 4 ──USB──> Pico ──control wires──> 4 × BTS7960
+  Mac     ~~Wi-Fi~~>  Pi 4 ──USB──> Pico ──control wires──> 4 × BTS7960
                         │             ^
                         │             └── wheel sensor wires (through a voltage
                         │                  adapter if the sensors run on 5 V)
@@ -51,13 +51,17 @@ signals have nothing to be measured against.
 
 ### Where each program runs, and why
 
-- **On the Pi:** the lidar program, the **safety gate** (`robot_safety`), and
-  the motor driver program. The safety gate has to be on the robot, not the
-  laptop: if Wi-Fi drops, the commands stop arriving, and the gate stops the
+- **On the Pi: all the ROS software.** That's the lidar program, the
+  **safety gate** (`robot_safety`), the motor driver program, the map builder
+  (SLAM Toolbox), the driving keys (`teleop`), and `foxglove_bridge`, which
+  lets the Mac see what the robot sees. ROS 2 doesn't run reliably on macOS,
+  so none of it goes on the Mac. The safety gate would belong on the robot
+  anyway: if Wi-Fi drops, the commands stop arriving, and the gate stops the
   robot. That only works if the gate isn't on the far side of the lost link.
-- **On the laptop:** the driving keys (`teleop`), the map builder
-  (SLAM Toolbox), and the map display (RViz). The map builder is heavy, and
-  this keeps the Pi free.
+- **On the Mac: two windows, no ROS.** The Terminal app, logged into the Pi
+  (`ssh`), where the driving keys are pressed. The keys are read on the Pi,
+  so a dropped connection means no more commands, which means a stop. And the
+  Foxglove app, which shows the lidar scan and the map as it forms.
 - **On the Pico:** motor signals and wheel counting. If it hears nothing from
   the Pi for 0.2 seconds, it stops the motors on its own. Losing the command
   stream is a stop condition, never a reason to keep going.
@@ -85,26 +89,28 @@ the one before it works.
 ### Stage 0 — Before the parts arrive (software)
 
 - [ ] Answer the [open questions](#open-questions) below.
-- [ ] Set up the laptop with ROS 2 Jazzy (see [getting-started.md](getting-started.md)).
+- [ ] Install the Foxglove app on the Mac.
 - [ ] Write the Pico program: motor signals, wheel counting, and the
       0.2-second stop if the Pi goes quiet.
 - [ ] Write the motor driver program for the Pi: takes `/cmd_vel` from the
       safety gate, passes it to the Pico, and reports how far the wheels have
       turned, so the map builder knows how the robot moved.
 - [ ] Add a launch file for the real robot. The existing ones assume the
-      simulator's clock.
+      simulator's clock, and the driving-keys one opens a window, which a
+      Pi with no screen can't do.
 
 ### Stage 1 — The Pi sees the room
 
-Needs: Pi, lidar, power bank, laptop.
+Needs: Pi, lidar, power bank, Mac.
 
 - [ ] Install Ubuntu 24.04 Server (64-bit) and ROS 2 Jazzy on the Pi, then
       build this repository on it.
-- [ ] Put the Pi and the laptop on the same Wi-Fi and the same
-      `ROS_DOMAIN_ID`.
+- [ ] Put the Pi and the Mac on the same Wi-Fi, check the Mac can log in
+      with `ssh`, and give the Pi its own `ROS_DOMAIN_ID`.
+- [ ] Find out how much memory the Pi has: run `free -h` on it.
 - [ ] Install LDRobot's ROS 2 lidar program, and confirm it supports the LD14P.
-- [ ] **Check:** the laptop shows the outline of the room, live, as you walk
-      around carrying the Pi and lidar.
+- [ ] **Check:** Foxglove on the Mac shows the outline of the room, live, as
+      you walk around carrying the Pi and lidar.
 
 ### Stage 2 — The wheels turn, in the air
 
@@ -150,7 +156,7 @@ They must be replaced before the robot touches the floor.
 - [ ] Clear the room of people who aren't taking part. Two people: one
       drives, the other holds the emergency stop. Tether the robot as the
       safety procedure says.
-- [ ] Record the run. Start the map builder on the laptop. Drive slowly around
+- [ ] Record the run. Start the map builder on the Pi, and watch it in Foxglove. Drive slowly around
       the room until the map on screen covers all of it.
 - [ ] Save the map, commit it to `robot_bringup/maps/`, and commit the
       recording report to `docs/runs/`.
@@ -162,11 +168,12 @@ They must be replaced before the robot touches the floor.
 
 These change what gets built or bought. Answer them before Stage 0 finishes.
 
-1. **What does the laptop run: Windows, Mac or Linux?** ROS 2 works best on
-   Ubuntu Linux. On Windows or Mac the laptop needs extra setup, or the Pi
-   does more of the work.
-2. **How much memory does the Pi 4 have (2, 4 or 8 GB)?** It's printed on the
-   board. 2 GB will be tight.
+1. ~~What does the laptop run?~~ **A Mac** (answered 2026-09-23). That's why
+   all the ROS software runs on the Pi.
+2. **How much memory does the Pi 4 have (1, 2, 4 or 8 GB)?** Check the box,
+   or run `free -h` once it's set up (Stage 1). Now that the map builder runs
+   on the Pi, this matters more: 4 GB or more is comfortable, 2 GB should
+   manage one room, and 1 GB is probably too little.
 3. **What voltage do the wheel sensors use?** Check the chassis listing or ask
    the seller. If it's 5 V, buy a level shifter (about $3–5).
 4. **What current does the battery's protection circuit (BMS) allow?** It
