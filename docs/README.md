@@ -18,6 +18,12 @@ A map of this folder, in the order worth reading them.
    run the simulation yourself. This is the one that assumes you are at a
    terminal.
 
+## The plan for the first real robot
+
+**[poc-plan.md](poc-plan.md)** — the proof of concept: drive the robot around
+one room by remote control and map it. The parts, how they connect, and the
+stages in order, each ending in something you can see working.
+
 ## Evidence
 
 **[runs/](runs/README.md)** — reports from real recorded runs, committed as
