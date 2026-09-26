@@ -11,7 +11,7 @@ from the mapping run in `docs/runs/`. Nothing else counts.
 the operator console, and sideways driving. They all wait.
 
 Written 2026-09-23, shopping list corrected 2026-09-26. Parts total: about
-$290 before tax and shipping, emergency stop bought later. See
+$298–323 before tax and shipping, emergency stop bought later. See
 [the shopping list](#shopping-list).
 
 ---
@@ -25,34 +25,47 @@ $290 before tax and shipping, emergency stop bought later. See
 | Mecanum chassis, 4 motors with wheel sensors | The body and wheels. The wheel sensors count how far each wheel turned. |
 | 4 × BTS7960 motor drivers | One per motor. They turn small control signals into the heavy current the motors need. |
 | Raspberry Pi Pico H | A small chip that does the split-second work: sends the control signals to the four drivers and counts the wheel sensor pulses. Talks to the Pi over USB. |
-| 12 V 10 Ah LiFePO4 battery + charger | Powers the motors. |
+| 12 V 20 Ah LiFePO4 battery + charger | Powers the motors. |
 | USB power bank (already owned, must supply 5 V 3 A) | Powers the Pi, kept separate from the motor battery. |
-| Wire, 30 A fuse holder, terminals | Connect the battery to the drivers. The fuse sits right at the battery. |
+| Wire, fuse holder + 20 A fuse, terminals | Connect the battery to the drivers. The fuse sits right at the battery. |
 | **Later:** emergency stop button + 40 A relay | Cuts power to the motors when pressed, whatever the software is doing. |
 | A Mac laptop | Where a person drives the robot from and watches the map form. It doesn't need ROS installed. |
 
 ## Shopping list
 
-Corrected 2026-09-26. The first list left out the small parts that connect
-the Pico to everything else, and bought far more wire than the robot needs.
+Corrected 2026-09-26, after checking each listing. Changes from the first
+list: the fuse holder comes without a fuse, so one is added; the battery is
+one whose listing confirms 20 A continuous; and the motor drivers need no
+level shifters (see the wiring note below).
 
 | Part | Qty | Price | Notes |
 |---|---|---|---|
-| [LD14P lidar kit (D200)](https://www.robotshop.com/products/360-omni-directional-triangulation-lidar-8m-d200-developer-kit-w-ld14p-lidar) | 1 | $66 | Includes the USB adapter board |
-| [Mecanum chassis + 4 motors + wheel sensors](https://www.aliexpress.us/item/1005007657235415.html) | 1 | $109 | Before ordering, check the listing says **12 V motors** and **encoders included** |
-| [BTS7960 motor drivers, pack of 4](https://www.aliexpress.us/item/3256809346254900.html) | 1 | $21 | One per wheel |
-| [ExpertPower 12 V 10 Ah LiFePO4 battery](https://www.amazon.com/dp/B0DJ2J6R25) | 1 | $40 | Check the listing says **BMS 20 A or more**. If it says 10 A, pick a different 12 V 10 Ah LiFePO4 that does |
-| [14.6 V 2 A LiFePO4 charger](https://www.amazon.com/Charger-Intelligent-Charge-LiFePO4-Battery/dp/B085RXS63Q) | 1 | $18 | |
-| [Raspberry Pi Pico H](https://www.pishop.us/product/raspberry-pi-pico-h-pre-soldered-headers/) | 1 | $5 | Pre-soldered pins |
-| 12-AWG red/black wire, **10 ft** | 1 | ~$8 | *Changed:* was 25 ft for $15. 10 ft is plenty |
-| [30 A inline fuse holder (ATC)](https://www.walmart.com/ip/ATC-30A-INLINE-FUSE-HOLDER-HHD/18734411595) | 1 | $5 | Check a 30 A fuse comes with it |
-| Ring terminal + heat-shrink, **small pack** | 1 | ~$5 | *Changed:* was a $13 kit |
-| **New:** level shifter boards, 4-channel (BSS138), pack of 5 | 1 | ~$7 | The Pico speaks 3.3 V and the drivers expect 5 V. These translate. 5 boards cover the 8 motor signals and the 8 wheel-sensor wires |
-| **New:** jumper wire kit (male-female, female-female) | 1 | ~$6 | Connects the Pico, level shifters and drivers without soldering |
-| **Total** | | **~$290** | Before tax and shipping |
+| [LD14P lidar kit (D200)](https://www.robotshop.com/products/360-omni-directional-triangulation-lidar-8m-d200-developer-kit-w-ld14p-lidar) | 1 | $65.58 | Includes cable and USB adapter. Powered from the Pi's USB |
+| [Mecanum chassis, four 12 V encoder motors](https://www.aliexpress.us/item/1005007657235415.html) | 1 | ~$110.66 | Before ordering, confirm the variant, the wheel-sensor voltage, and shipping |
+| [BTS7960 motor drivers, 4-pack](https://www.aliexpress.us/item/1005012629496504.html) | 1 | ~$28.68 | One per wheel |
+| [Enegitech 12.8 V 20 Ah LiFePO4, 20 A continuous](https://www.walmart.com/ip/15439605136) | 1 | $56.99 | Or the $40 ExpertPower 10 Ah, **only** if its listing shows a 20 A+ BMS |
+| [14.6 V 2 A LiFePO4 charger](https://www.amazon.com/dp/B085RXS63Q) | 1 | $17.99 | Barrel plug: may need an adapter lead to the battery terminals |
+| [Raspberry Pi Pico H](https://www.pishop.us/product/raspberry-pi-pico-h-pre-soldered-headers/) | 1 | $5.00 | Pre-soldered pins |
+| [12-AWG red + black copper wire, 10 ft each](https://www.amazon.com/dp/B08Q7KFPYC) | 1 | ~$11.99 | Real copper, not copper-clad aluminum |
+| [ATC inline fuse holder, 12 AWG](https://www.walmart.com/ip/18734411595) | 1 | $4.22 | **Fuse not included** |
+| ATC fuse, 20 A | 1 | ~$2 | Any auto parts store. 20 A matches the battery's limit |
+| [12–10 AWG heat-shrink ring terminals, 8-pack](https://www.walmart.com/ip/18033906877) | 1 | $5.92 | Match the hole size to the battery terminals |
+| [BSS138 4-channel level shifter](https://www.adafruit.com/product/757) | 2 | $7.90 | **Only if the wheel sensors run on 5 V.** Two boards = 8 channels = 4 sensors |
+| [Jumper wire kit](https://www.amazon.com/dp/B01EV70C78) | 1 | ~$6 | Signal wires only, never motor or battery current |
+| **Total** | | **~$323** | Before tax and shipping |
 
-**Tax and shipping will likely push it to about $300–315.** AliExpress
-shipping is often free; US sales tax on ~$290 is roughly $15–25.
+**Getting under $300:** skip the level shifters if the wheel sensors run on
+3.3 V (−$7.90), and use the 10 Ah battery if its listing shows a 20 A+ BMS
+(−$17). Both together: about $298.
+
+**Not needed: a 12 V → 5 V regulator.** Nothing but the motor drivers
+connects to the battery. The lidar and the Pico get power over USB from the
+Pi, and the Pi from the power bank. A regulator is only needed if the power
+bank can't supply 5 V 3 A, and then it must be rated 3 A or more.
+
+**Wiring note:** each BTS7960 board has a small VCC pin that powers its
+input chips. Wire it to the Pico's **3.3 V** pin, not 5 V. Then the drivers
+read the Pico's 3.3 V signals reliably, with no level shifters in between.
 
 **Check you already have these** (they aren't on the list):
 
@@ -66,14 +79,14 @@ shipping is often free; US sales tax on ~$290 is roughly $15–25.
 
 ```
 Motor power:
-  Battery + ──[30 A fuse]──[e-stop relay, later]──> 4 × BTS7960 ──> 4 motors
+  Battery + ──[20 A fuse]──[e-stop relay, later]──> 4 × BTS7960 ──> 4 motors
   Battery − ─────────────────────────────────────> 4 × BTS7960
 
 Control:
   Mac     ~~Wi-Fi~~>  Pi 4 ──USB──> Pico ──control wires──> 4 × BTS7960
                         │             ^
-                        │             └── wheel sensor wires (through a voltage
-                        │                  adapter if the sensors run on 5 V)
+                        │             └── wheel sensor wires (through level
+                        │                  shifters if the sensors run on 5 V)
                         └──USB──> lidar
   Power bank ──USB-C──> Pi 4
 ```
@@ -151,7 +164,8 @@ all four wheels off the ground for this whole stage.**
 
 - [ ] Check what voltage the wheel sensors use. If it's 5 V, route them
       through the level shifters before connecting them to the Pico. The
-      motor signals from the Pico to the drivers always go through them.
+      drivers' VCC pins go to the Pico's 3.3 V pin, and their control wires
+      connect straight to the Pico.
 - [ ] Wire battery → fuse → drivers → motors. Wire the Pico to the drivers
       and the wheel sensors.
 - [ ] **Check:** each wheel spins in the right direction when you press the
@@ -208,11 +222,11 @@ These change what gets built or bought. Answer them before Stage 0 finishes.
    on the Pi, this matters more: 4 GB or more is comfortable, 2 GB should
    manage one room, and 1 GB is probably too little.
 3. **What voltage do the wheel sensors use?** Check the chassis listing or ask
-   the seller. Level shifters are now on the shopping list either way, so
-   this only decides whether the sensor wires go through them.
-4. **What current does the battery's protection circuit (BMS) allow?** It
-   needs to be 20 A or more, or the battery may cut out when all four motors
-   start at once.
+   the seller. If it's 5 V, buy the two level shifters on the shopping list;
+   if 3.3 V, skip them.
+4. ~~What current does the battery's protection circuit (BMS) allow?~~
+   **20 A continuous**, with the 20 Ah battery on the shopping list (answered
+   2026-09-26). Only re-ask this if you switch to the cheaper 10 Ah one.
 5. **Does the power bank really supply 5 V 3 A?** If not, the Pi will slow
    itself down or reboot. The fix is a 12 V → 5 V converter from the motor
    battery (about $20).
