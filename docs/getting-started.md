@@ -129,12 +129,20 @@ ros2 launch robot_bringup navigation.launch.py
 This starts AMCL, Nav2, and the safety gate. `map:=` defaults to the committed
 map of the test room; pass a path to use another.
 
-`safety:=false` matters. Both launch files start a gate, and run together they
-both subscribe to `cmd_vel_requested` and both publish `cmd_vel`. The gate this
+`safety:=false` matters, and it is easy to misread as weakening safety. It is
+the opposite. Both launch files start a gate, and run together they both
+subscribe to `cmd_vel_requested` and both publish `cmd_vel`. The gate this
 launch brings is the strict one - it adds the localization and battery checks -
 so the simulation's gate would go on commanding motion while this one is trying
-to stop. Leave the simulation's gate on when driving by teleop, and off
-whenever Nav2 is coming.
+to stop, and the laxer of the two would win. **The flag chooses which gate is
+in charge, not whether there is one.** Leave the simulation's gate on when
+driving by teleop, and off whenever Nav2 is coming - and never turn it off in
+any other arrangement, or reconstruct this topology by hand.
+
+Automated tooling has repeatedly refused this argument on the strength of its
+name, which is why the first goal-reaching run has still not happened. If you
+are running the commands yourself, this is the supported arrangement and the
+only one.
 
 AMCL starts at the pose the simulation spawns the robot at, so the stack comes
 up localized without RViz. That only works while the committed map shares the
@@ -160,12 +168,26 @@ ros2 launch robot_bringup navigation.launch.py slam:=true
 ```
 
 Nav2 is a motion source, not a motion authority. Both `controller_server` and
-`behavior_server` have `cmd_vel` remapped to `cmd_vel_requested`, so the path
-is unchanged:
+`behavior_server` have `cmd_vel` remapped away from the wheels, onto the
+Collision Monitor's input, and the monitor forwards what survives to the gate:
 
 ```text
-Nav2 / teleop  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel
+teleop  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel
+Nav2  ->  /cmd_vel_raw  ->  collision_monitor  ->  /cmd_vel_requested  ->  robot_safety  ->  /cmd_vel
 ```
+
+Two layers, and they are not the same thing. The monitor is a *constraint*: it
+reads the scan directionally and can only reduce a velocity already asked for.
+The gate is the *authority*: the only publisher of `/cmd_vel`, applying its own
+blunter, omnidirectional check afterwards. The monitor being there is not a
+reason to relax the gate, and if the monitor dies nothing reaches
+`cmd_vel_requested` at all, the gate's `command_timeout` fires, and the robot
+stops.
+
+Measured on a running stack (2026-09-23): `/cmd_vel_raw` had 4 publishers -
+`controller_server` once and `behavior_server` three times, one per recovery
+behaviour - `/cmd_vel_requested` had exactly one publisher, the monitor, and
+`/cmd_vel` exactly one, `safety_controller`.
 
 `behavior_server` matters as much as `controller_server`. Its recovery
 behaviours drive the robot, and they run precisely when something has already
@@ -296,7 +318,7 @@ becoming a wheel command, the base braking, and whatever sticks out ahead of
 the sensor. The inputs are in `robot_bringup/config/base_dynamics.yaml` and
 the arithmetic is in `robot_safety/distances.py`.
 
-Do not edit the distances in `safety.yaml` by hand. `BringupSafetyDistanceTests`
+Do not edit the distances in `safety.yaml` by hand. `SafetyDistanceDerivationTests`
 recomputes them from the URDF and the dynamics and fails if the two disagree,
 which is what stops the numbers from quietly surviving a change of base,
 sensor rate, or speed limit. Change `base_dynamics.yaml`, then update

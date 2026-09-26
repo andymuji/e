@@ -109,7 +109,9 @@ class BagAdapterTests(unittest.TestCase):
         report = build_report(
             self.records, source=str(self.bag), stop_distance=0.45
         )
-        self.assertIs(report.verdict, Verdict.PASS)
+        # No topic graph was passed, so one check could not be answered and
+        # the run is not a pass - but everything it could answer, it did.
+        self.assertIs(report.verdict, Verdict.INCOMPLETE)
         self.assertEqual(len(report.emergency_stops), 1)
         self.assertAlmostEqual(report.emergency_stops[0].seconds, 0.1)
 

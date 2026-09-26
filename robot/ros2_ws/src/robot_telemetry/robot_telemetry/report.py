@@ -36,16 +36,25 @@ class Verdict(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     INCONCLUSIVE = "INCONCLUSIVE"
+    INCOMPLETE = "INCOMPLETE"
 
     @property
     def exit_code(self) -> int:
-        """0 only for a clean run. INCONCLUSIVE is not success.
+        """0 only for a clean run that answered every question.
 
         A recording that could not answer the questions must not be able to
         turn a pull request green, so it gets its own non-zero code rather
-        than being folded into either of the other two.
+        than being folded into either of the other two. A run that answered
+        some of them and left others untouched gets a third: it is not a
+        failure, but it is not evidence of a pass either. 3 is taken by
+        analyse.py for a recording it could not read at all.
         """
-        return {Verdict.PASS: 0, Verdict.FAIL: 1, Verdict.INCONCLUSIVE: 2}[self]
+        return {
+            Verdict.PASS: 0,
+            Verdict.FAIL: 1,
+            Verdict.INCONCLUSIVE: 2,
+            Verdict.INCOMPLETE: 4,
+        }[self]
 
 
 @dataclass(frozen=True)
@@ -63,12 +72,19 @@ class SafetyReport:
 
     @property
     def verdict(self) -> Verdict:
+        unexercised = [
+            finding
+            for finding in self.findings
+            if finding.outcome is Outcome.NOT_EXERCISED
+        ]
         if any(finding.failed for finding in self.findings):
             return Verdict.FAIL
-        if all(
-            finding.outcome is Outcome.NOT_EXERCISED for finding in self.findings
-        ):
+        if len(unexercised) == len(self.findings):
             return Verdict.INCONCLUSIVE
+        if unexercised:
+            # A check the run never put to the test is not a check that
+            # passed, so one of them is enough to keep the headline off green.
+            return Verdict.INCOMPLETE
         return Verdict.PASS
 
     def render(self) -> str:
@@ -227,6 +243,7 @@ def _verdict_meaning(verdict: Verdict) -> str:
         Verdict.PASS: "this recording broke none of the safety rules checked below",
         Verdict.FAIL: "this recording broke a safety rule; read the FAILED entries",
         Verdict.INCONCLUSIVE: "this recording cannot answer any of the questions",
+        Verdict.INCOMPLETE: "this run never put every check to the test",
     }[verdict]
 
 
