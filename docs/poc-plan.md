@@ -10,8 +10,9 @@ from the mapping run in `docs/runs/`. Nothing else counts.
 **Not in this proof of concept:** driving to a goal by itself (Nav2), voice,
 the operator console, and sideways driving. They all wait.
 
-Written 2026-09-23. Parts total: $291.99 before shipping, emergency stop
-bought later.
+Written 2026-09-23, shopping list corrected 2026-09-26. Parts total: about
+$290 before tax and shipping, emergency stop bought later. See
+[the shopping list](#shopping-list).
 
 ---
 
@@ -29,6 +30,37 @@ bought later.
 | Wire, 30 A fuse holder, terminals | Connect the battery to the drivers. The fuse sits right at the battery. |
 | **Later:** emergency stop button + 40 A relay | Cuts power to the motors when pressed, whatever the software is doing. |
 | A Mac laptop | Where a person drives the robot from and watches the map form. It doesn't need ROS installed. |
+
+## Shopping list
+
+Corrected 2026-09-26. The first list left out the small parts that connect
+the Pico to everything else, and bought far more wire than the robot needs.
+
+| Part | Qty | Price | Notes |
+|---|---|---|---|
+| [LD14P lidar kit (D200)](https://www.robotshop.com/products/360-omni-directional-triangulation-lidar-8m-d200-developer-kit-w-ld14p-lidar) | 1 | $66 | Includes the USB adapter board |
+| [Mecanum chassis + 4 motors + wheel sensors](https://www.aliexpress.us/item/1005007657235415.html) | 1 | $109 | Before ordering, check the listing says **12 V motors** and **encoders included** |
+| [BTS7960 motor drivers, pack of 4](https://www.aliexpress.us/item/3256809346254900.html) | 1 | $21 | One per wheel |
+| [ExpertPower 12 V 10 Ah LiFePO4 battery](https://www.amazon.com/dp/B0DJ2J6R25) | 1 | $40 | Check the listing says **BMS 20 A or more**. If it says 10 A, pick a different 12 V 10 Ah LiFePO4 that does |
+| [14.6 V 2 A LiFePO4 charger](https://www.amazon.com/Charger-Intelligent-Charge-LiFePO4-Battery/dp/B085RXS63Q) | 1 | $18 | |
+| [Raspberry Pi Pico H](https://www.pishop.us/product/raspberry-pi-pico-h-pre-soldered-headers/) | 1 | $5 | Pre-soldered pins |
+| 12-AWG red/black wire, **10 ft** | 1 | ~$8 | *Changed:* was 25 ft for $15. 10 ft is plenty |
+| [30 A inline fuse holder (ATC)](https://www.walmart.com/ip/ATC-30A-INLINE-FUSE-HOLDER-HHD/18734411595) | 1 | $5 | Check a 30 A fuse comes with it |
+| Ring terminal + heat-shrink, **small pack** | 1 | ~$5 | *Changed:* was a $13 kit |
+| **New:** level shifter boards, 4-channel (BSS138), pack of 5 | 1 | ~$7 | The Pico speaks 3.3 V and the drivers expect 5 V. These translate. 5 boards cover the 8 motor signals and the 8 wheel-sensor wires |
+| **New:** jumper wire kit (male-female, female-female) | 1 | ~$6 | Connects the Pico, level shifters and drivers without soldering |
+| **Total** | | **~$290** | Before tax and shipping |
+
+**Tax and shipping will likely push it to about $300–315.** AliExpress
+shipping is often free; US sales tax on ~$290 is roughly $15–25.
+
+**Check you already have these** (they aren't on the list):
+
+- A microSD card, 32 GB or more, for the Pi
+- A micro-USB cable (Pico to Pi) and a USB-C cable (power bank to Pi)
+- Zip ties, double-sided tape, and something flat and stiff (a scrap of
+  plastic or wood) to mount the lidar on top, where nothing blocks its view
+- A small screwdriver set
 
 ## How it fits together
 
@@ -117,8 +149,9 @@ Needs: Pi, lidar, power bank, Mac.
 Needs: everything except the emergency stop. **The robot sits on a box with
 all four wheels off the ground for this whole stage.**
 
-- [ ] Check what voltage the wheel sensors use. If it's 5 V, add a voltage
-      adapter (level shifter) before connecting them to the Pico.
+- [ ] Check what voltage the wheel sensors use. If it's 5 V, route them
+      through the level shifters before connecting them to the Pico. The
+      motor signals from the Pico to the drivers always go through them.
 - [ ] Wire battery → fuse → drivers → motors. Wire the Pico to the drivers
       and the wheel sensors.
 - [ ] **Check:** each wheel spins in the right direction when you press the
@@ -175,7 +208,8 @@ These change what gets built or bought. Answer them before Stage 0 finishes.
    on the Pi, this matters more: 4 GB or more is comfortable, 2 GB should
    manage one room, and 1 GB is probably too little.
 3. **What voltage do the wheel sensors use?** Check the chassis listing or ask
-   the seller. If it's 5 V, buy a level shifter (about $3–5).
+   the seller. Level shifters are now on the shopping list either way, so
+   this only decides whether the sensor wires go through them.
 4. **What current does the battery's protection circuit (BMS) allow?** It
    needs to be 20 A or more, or the battery may cut out when all four motors
    start at once.
