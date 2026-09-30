@@ -20,7 +20,7 @@ try:
         pose_from_transform,
         snapshot_from_message,
     )
-    from robot_core import Pose2D
+    from robot_core import NavigationGoal, Pose2D
     from robot_locations import LocationStore
     from std_msgs.msg import Bool, String
 
@@ -140,6 +140,25 @@ class ConsoleNodeTests(unittest.TestCase):
         status = self.node.app.status()
         self.assertEqual(status["safety_state"], "caution")
         self.assertEqual(status["safety_message"], "obstacle inside caution distance")
+
+    def test_a_latch_engaged_elsewhere_ends_the_consoles_trip(self) -> None:
+        # A spoken stop latches the gate without going through this console.
+        # Its trip must end too, or it resumes the moment the stop is reset.
+        # An obstacle stop is momentary and leaves the trip alone.
+        from web_ui.app import DemoGoalDispatcher
+
+        dispatcher = DemoGoalDispatcher()
+        self.node.app.dispatcher = dispatcher
+        dispatcher.send_goal(NavigationGoal("kitchen", Pose2D(1.0, 2.0)))
+        state = self.listener.create_publisher(String, "safety_state", STATE_QOS)
+
+        state.publish(String(data="stop: obstacle inside stop distance"))
+        self.spin()
+        self.assertEqual(dispatcher.status().state, "navigating")
+
+        state.publish(String(data="stop: emergency stop active"))
+        self.spin()
+        self.assertEqual(dispatcher.status().state, "cancelled")
 
     def test_a_goal_with_no_navigation_running_is_refused(self) -> None:
         # Nav2 is not running in this test, which is the point: the console

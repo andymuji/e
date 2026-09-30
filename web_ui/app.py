@@ -305,10 +305,10 @@ class RobotWebApp:
         showing as active would misreport what the robot is doing.
         """
         self.safety.engage_emergency_stop()
-        self._abandon_trip()
+        self.abandon_trip()
         return self.status()
 
-    def _abandon_trip(self) -> None:
+    def abandon_trip(self) -> None:
         """Cancel the trip in progress, if there is one.
 
         Under the store lock, which send_goal holds from its latch check to
@@ -403,7 +403,7 @@ class RobotWebApp:
             # A halt is a stop the recogniser mangled - "sto", "hal". It drops
             # the trip exactly as a stop does; what it does not do is ask for
             # the latch, which is the gateway's decision, not this console's.
-            self._abandon_trip()
+            self.abandon_trip()
         elif outcome.action == "go_to":
             refusal = self._motion_refusal()
             if refusal is not None:
