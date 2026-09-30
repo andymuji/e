@@ -10,6 +10,7 @@
 
   <exec_depend>launch</exec_depend>
   <exec_depend>cartographer_ros</exec_depend>
+  <exec_depend>cartographer_ros_msgs</exec_depend>
   <exec_depend>dwb_core</exec_depend>
   <exec_depend>foxglove_bridge</exec_depend>
   <exec_depend>launch_ros</exec_depend>

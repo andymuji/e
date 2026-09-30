@@ -26,6 +26,7 @@ setup(
     entry_points={
         "console_scripts": [
             "world_to_map = robot_bringup.world_to_map:main",
+            "save_map = robot_bringup.save_map:main",
         ],
     },
     maintainer="andymuji",
