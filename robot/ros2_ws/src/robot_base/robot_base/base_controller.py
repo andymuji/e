@@ -77,14 +77,28 @@ class BaseController:
         geometry: MecanumGeometry,
         limits: DriveLimits,
         command_timeout: float,
+        allow_sideways: bool = True,
+        max_step: int | None = None,
     ) -> None:
+        """`allow_sideways=False` drives the base like a tank: vy is dropped.
+
+        `max_step` caps how much any wheel's command may GROW per decision,
+        in thousandths of full power, so the four motors do not all draw
+        their starting current at once from a battery that allows 10 A.
+        Slowing and stopping are never ramped: a stop takes effect at once.
+        """
         if not math.isfinite(command_timeout) or command_timeout <= 0.0:
             raise ValueError("command_timeout must be finite and greater than zero")
+        if max_step is not None and max_step <= 0:
+            raise ValueError("max_step must be positive")
         self.geometry = geometry
         self.limits = limits
         self.command_timeout = command_timeout
+        self.allow_sideways = allow_sideways
+        self.max_step = max_step
         self._command: tuple[float, float, float] | None = None
         self._command_time: float | None = None
+        self._sent = STOPPED
 
     def on_command(self, vx: float, vy: float, wz: float, now: float) -> None:
         """Take one /cmd_vel message. An unreadable one is kept as None."""
@@ -93,6 +107,26 @@ class BaseController:
         self._command_time = now
 
     def decide(self, now: float, topic_problem: str | None = None) -> DriveDecision:
+        decision = self._target(now, topic_problem)
+        self._sent = tuple(
+            self._ramp(sent, wanted)
+            for sent, wanted in zip(self._sent, decision.commands, strict=True)
+        )
+        return DriveDecision(self._sent, decision.reason)
+
+    def _ramp(self, sent: int, wanted: int) -> int:
+        """Grow a wheel's command by at most max_step; shrink it at once.
+
+        A reversal goes through zero first, so it too starts from rest.
+        """
+        if self.max_step is None or (abs(wanted) <= abs(sent) and sent * wanted >= 0):
+            return wanted
+        if sent * wanted < 0:
+            return 0
+        step = min(self.max_step, abs(wanted) - abs(sent))
+        return sent + step if wanted > 0 else sent - step
+
+    def _target(self, now: float, topic_problem: str | None) -> DriveDecision:
         if topic_problem is not None:
             return DriveDecision(STOPPED, topic_problem)
         if self._command_time is None:
@@ -107,10 +141,11 @@ class BaseController:
         if self._command is None:
             return DriveDecision(STOPPED, "invalid motion command")
 
+        vx, vy, wz = self._command
+        if not self.allow_sideways:
+            vy = 0.0
         vx, vy, wz = limit_body(
-            *self._command,
-            self.limits.max_linear_speed,
-            self.limits.max_angular_speed,
+            vx, vy, wz, self.limits.max_linear_speed, self.limits.max_angular_speed
         )
         commands = wheel_commands(
             self.geometry.inverse(vx, vy, wz), self.limits.max_wheel_speed

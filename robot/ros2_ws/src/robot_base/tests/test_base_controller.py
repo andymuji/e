@@ -80,6 +80,59 @@ class StaleCommandTests(unittest.TestCase):
         self.assertEqual(base.decide(now=100.0).commands, (600, 600, 600, 600))
 
 
+class TankAndRampTests(unittest.TestCase):
+    def ramped(self, max_step: int = 100, allow_sideways: bool = True) -> BaseController:
+        return BaseController(
+            MecanumGeometry(wheel_radius=0.05, half_wheelbase=0.1, half_track=0.1),
+            DriveLimits(0.3, 1.0, 10.0),
+            command_timeout=0.25,
+            allow_sideways=allow_sideways,
+            max_step=max_step,
+        )
+
+    def test_tank_mode_drops_sideways_requests(self) -> None:
+        base = self.ramped(max_step=None, allow_sideways=False)
+        base.on_command(0.0, 0.3, 0.0, now=0.0)
+
+        self.assertEqual(base.decide(now=0.0).commands, STOPPED)
+
+    def test_power_rises_no_faster_than_the_step(self) -> None:
+        base = self.ramped()
+        base.on_command(0.3, 0.0, 0.0, now=0.0)
+
+        seen = [base.decide(now=0.01 * i).commands[0] for i in range(8)]
+
+        self.assertEqual(seen, [100, 200, 300, 400, 500, 600, 600, 600])
+
+    def test_a_stop_is_never_ramped(self) -> None:
+        base = self.ramped()
+        base.on_command(0.3, 0.0, 0.0, now=0.0)
+        for i in range(6):
+            base.decide(now=0.01 * i)
+
+        # Stale: zero at once, not 500, 400, ...
+        self.assertEqual(base.decide(now=1.0).commands, STOPPED)
+
+    def test_slowing_down_is_immediate(self) -> None:
+        base = self.ramped()
+        base.on_command(0.3, 0.0, 0.0, now=0.0)
+        for i in range(6):
+            base.decide(now=0.01 * i)
+        base.on_command(0.05, 0.0, 0.0, now=0.1)
+
+        self.assertEqual(base.decide(now=0.1).commands[0], 100)
+
+    def test_a_reversal_passes_through_rest(self) -> None:
+        base = self.ramped()
+        base.on_command(0.3, 0.0, 0.0, now=0.0)
+        for i in range(6):
+            base.decide(now=0.01 * i)
+        base.on_command(-0.3, 0.0, 0.0, now=0.1)
+
+        self.assertEqual(base.decide(now=0.1).commands[0], 0)
+        self.assertEqual(base.decide(now=0.11).commands[0], -100)
+
+
 class WheelTopicTests(unittest.TestCase):
     def test_the_gate_alone_is_trusted(self) -> None:
         self.assertIsNone(wheel_topic_problem([GATE], GATE))

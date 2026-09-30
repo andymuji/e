@@ -30,6 +30,7 @@ from robot_base.base_controller import (
 )
 from robot_base.kinematics import MecanumGeometry, OdometryIntegrator
 from robot_base.protocol import (
+    FULL_SCALE,
     BootReport,
     EncoderReport,
     Refusal,
@@ -67,6 +68,15 @@ def _open_serial(port: str):
     return serial.Serial(port, 115200, timeout=0, write_timeout=0.1)
 
 
+def ramp_step(ramp_time: float, control_rate_hz: float) -> int | None:
+    """Thousandths of full power a wheel may gain per control cycle."""
+    if not math.isfinite(ramp_time) or ramp_time < 0.0:
+        raise ValueError("ramp_time must be finite and not negative")
+    if ramp_time == 0.0:
+        return None
+    return max(1, math.ceil(FULL_SCALE / (ramp_time * control_rate_hz)))
+
+
 def _diagonal(variances: tuple[float, ...]) -> list[float]:
     covariance = [0.0] * 36
     for index, variance in enumerate(variances):
@@ -92,6 +102,11 @@ class BaseNode(Node):
         self.declare_parameter("max_wheel_speed", 60.0)
         self.declare_parameter("max_linear_speed", 0.3)
         self.declare_parameter("max_angular_speed", 1.0)
+        # Tank driving for the proof of concept: sideways requests dropped.
+        self.declare_parameter("allow_sideways", False)
+        # Seconds for a wheel to go from rest to full power. 0 = no ramp.
+        # Stops are never ramped.
+        self.declare_parameter("ramp_time", 0.5)
         self.declare_parameter("odom_frame", "odom")
         self.declare_parameter("base_frame", "base_link")
         # Off by default: on the car Cartographer publishes odom -> base_link
@@ -122,6 +137,8 @@ class BaseNode(Node):
                 max_wheel_speed=number("max_wheel_speed"),
             ),
             command_timeout=number("command_timeout"),
+            allow_sideways=bool(self.get_parameter("allow_sideways").value),
+            max_step=ramp_step(number("ramp_time"), control_rate_hz),
         )
         self._odometry = OdometryIntegrator(geometry)
         self._port_name = str(self.get_parameter("serial_port").value)

@@ -44,6 +44,19 @@ base_driver:
     max_linear_speed: 0.3
     max_angular_speed: 1.0
 
+    # Drive it like a tank for the proof of concept (docs/poc-plan.md):
+    # sideways requests are dropped. Mecanum sideways motion slips the most
+    # and is the hardest to judge from across a room.
+    allow_sideways: false
+
+    # Seconds for a wheel to go from rest to full power. Spreads out the
+    # four motors' starting current: the battery's BMS allows 10 A
+    # continuous (15 A for 10 s) and the main fuse is 15 A. This is NOT a
+    # current limit - nothing on the base measures current - only a way to
+    # avoid asking for all four starting surges at once. Slowing down and
+    # stopping are never ramped.
+    ramp_time: 0.5
+
     odom_frame: odom
     base_frame: base_link
     # Off: Cartographer publishes odom -> base_link on the car
