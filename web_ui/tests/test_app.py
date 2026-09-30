@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import Mock, patch
 
 from robot_core import Pose2D
 from robot_locations import LocationStore
@@ -14,6 +15,7 @@ from robot_locations import LocationStore
 from web_ui.app import (
     BadRequest,
     DemoGoalDispatcher,
+    FreeLLMAPIChat,
     RobotWebApp,
     SafetyScenarioAdapter,
     make_handler,
@@ -117,6 +119,52 @@ class RobotWebAppTests(unittest.TestCase):
         self.assertEqual(result["action"], "refused")
         self.assertNotIn("goal_id", result)
         self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_free_text_uses_chat_without_issuing_robot_commands(self) -> None:
+        chat = Mock()
+        chat.reply.return_value = "A robot console can help manage saved destinations."
+        app = RobotWebApp(
+            self.app.location_store,
+            self.dispatcher,
+            self.safety,
+            chat_responder=chat,
+        )
+
+        result = app.handle_voice_command("What can this console do?")
+
+        self.assertEqual(result["action"], "chat")
+        self.assertEqual(result["response"], chat.reply.return_value)
+        self.assertEqual(self.dispatcher.status().state, "ready")
+        chat.reply.assert_called_once_with("What can this console do?")
+
+    def test_robot_commands_do_not_call_chat(self) -> None:
+        chat = Mock()
+        app = RobotWebApp(
+            self.app.location_store,
+            self.dispatcher,
+            self.safety,
+            chat_responder=chat,
+        )
+
+        result = app.handle_voice_command("go to the kitchen")
+
+        self.assertEqual(result["action"], "go_to")
+        chat.reply.assert_not_called()
+
+    def test_chat_api_uses_bearer_auth_and_openai_compatible_payload(self) -> None:
+        response = io.BytesIO(
+            b'{"choices":[{"message":{"content":"Hello from chat."}}]}'
+        )
+        client = FreeLLMAPIChat("test-key", model="auto")
+
+        with patch("web_ui.app.urlopen", return_value=response) as request_call:
+            answer = client.reply("Hello")
+
+        self.assertEqual(answer, "Hello from chat.")
+        request = request_call.call_args.args[0]
+        self.assertEqual(request.full_url, "http://localhost:3001/v1/chat/completions")
+        self.assertEqual(request.get_header("Authorization"), "Bearer test-key")
+        self.assertEqual(json.loads(request.data)["model"], "auto")
 
     def test_voice_stop_cancels_an_active_trip(self) -> None:
         self.app.send_goal("kitchen")

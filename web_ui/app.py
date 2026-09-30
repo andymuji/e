@@ -4,11 +4,14 @@ from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
+import os
 from pathlib import Path
 from threading import Lock, RLock
 import traceback
 from typing import Any, Protocol
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 import uuid
 
 from robot_core import NavigationGoal, Pose2D
@@ -26,6 +29,91 @@ class BadRequest(ValueError):
     and telling an operator "conflict" for a typo sends them looking at the
     robot instead of at the form.
     """
+
+
+class ChatResponder(Protocol):
+    def reply(self, message: str) -> str: ...
+
+
+class FreeLLMAPIChat:
+    """OpenAI-compatible chat fallback with no robot-control tools."""
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "http://localhost:3001/v1",
+        model: str = "auto",
+    ) -> None:
+        parsed_url = urlparse(base_url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            raise ValueError("FREELLMAPI_BASE_URL must be an HTTP(S) URL")
+        if not api_key.strip():
+            raise ValueError("FREELLMAPI_API_KEY must not be empty")
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+
+    def reply(self, message: str) -> str:
+        payload = json.dumps({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a helpful assistant in a robot developer console. "
+                        "You cannot control or operate the robot, and you must not "
+                        "claim to have moved it or changed its state. Robot commands "
+                        "are handled separately by a local allow-list. You do not "
+                        "know live robot or safety status."
+                    ),
+                },
+                {"role": "user", "content": message},
+            ],
+        }).encode("utf-8")
+        request = Request(
+            f"{self.base_url}/chat/completions",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                data = json.loads(response.read())
+        except HTTPError as error:
+            raise RuntimeError(f"FreeLLMAPI returned HTTP {error.code}.") from error
+        except URLError as error:
+            raise RuntimeError("FreeLLMAPI could not be reached.") from error
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise RuntimeError("FreeLLMAPI returned an unreadable response.") from error
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise RuntimeError("FreeLLMAPI returned an unexpected response.") from error
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError("FreeLLMAPI returned an empty response.")
+        return content.strip()
+
+
+def _load_local_environment(path: Path) -> None:
+    """Load simple KEY=value entries without replacing exported variables."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return
+    for line in lines:
+        entry = line.strip()
+        if not entry or entry.startswith("#") or "=" not in entry:
+            continue
+        name, value = entry.split("=", 1)
+        name, value = name.strip(), value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"\"", "'"}:
+            value = value[1:-1]
+        if name:
+            os.environ.setdefault(name, value)
 
 
 def _text_field(value: object, field: str) -> str:
@@ -227,12 +315,14 @@ class RobotWebApp:
         safety: SafetyAdapter | None = None,
         gateway: CommandGateway | None = None,
         map_provider: MapProvider | None = None,
+        chat_responder: ChatResponder | None = None,
     ):
         self.location_store = location_store
         self.dispatcher = dispatcher
         self.safety = safety or SafetyScenarioAdapter()
         self.gateway = gateway or CommandGateway(location_store)
         self.map_provider = map_provider or DemoMapProvider()
+        self.chat_responder = chat_responder
         # The server is threaded, so two operator requests can reach the
         # store at once. Reentrant because the mutating calls report the new
         # list by calling locations() while still holding it.
@@ -381,6 +471,15 @@ class RobotWebApp:
     def _handle_voice_command(self, transcript: str) -> dict[str, Any]:
         outcome = self.gateway.handle(transcript)
         result: dict[str, Any] = {"action": outcome.action, "response": outcome.response}
+        if outcome.action == "refused" and self.chat_responder is not None:
+            try:
+                result["action"] = "chat"
+                result["response"] = self.chat_responder.reply(transcript)
+            except RuntimeError:
+                result["action"] = "chat_error"
+                result["response"] = (
+                    "FreeLLMAPI chat is unavailable; no robot command was run."
+                )
         status = self.dispatcher.status()
 
         if outcome.action in ("stop", "halt"):
@@ -576,8 +675,24 @@ def make_handler(app: RobotWebApp, web_root: Path):
 
 def main() -> None:
     root = Path(__file__).parent
+    _load_local_environment(root.parent / ".env")
     store = LocationStore(root / "locations.json")
-    app = RobotWebApp(store, DemoGoalDispatcher(), SafetyScenarioAdapter())
+    api_key = os.environ.get("FREELLMAPI_API_KEY")
+    chat_responder = (
+        FreeLLMAPIChat(
+            api_key,
+            os.environ.get("FREELLMAPI_BASE_URL", "http://localhost:3001/v1"),
+            os.environ.get("FREELLMAPI_MODEL", "auto"),
+        )
+        if api_key
+        else None
+    )
+    app = RobotWebApp(
+        store,
+        DemoGoalDispatcher(),
+        SafetyScenarioAdapter(),
+        chat_responder=chat_responder,
+    )
     server = ThreadingHTTPServer(("127.0.0.1", 8080), make_handler(app, root / "web"))
     print("Robot destination app: http://127.0.0.1:8080")
     try:

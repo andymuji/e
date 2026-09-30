@@ -336,6 +336,33 @@ class LaunchFileTests(unittest.TestCase):
         # Teleop must go through the gate like every other motion source.
         self.assertIn('("/cmd_vel", "/cmd_vel_requested")', self.teleop)
 
+    def test_slam_clock_can_be_set_for_real_sensor_timestamps(self) -> None:
+        slam = (LAUNCH / "slam.launch.py").read_text()
+
+        self.assertIn('DeclareLaunchArgument(\n            "use_sim_time"', slam)
+        self.assertIn('LaunchConfiguration("use_sim_time")', slam)
+        self.assertIn('default_value="true"', slam)
+
+    def test_ld14p_mapping_launch_wires_scan_odometry_slam_and_foxglove(self) -> None:
+        source = (LAUNCH / "ld14p_mapping.launch.py").read_text()
+        packages = launched_packages(source)
+
+        self.assertIn("ldlidar_sl_ros2", packages)
+        self.assertIn("rf2o_laser_odometry", packages)
+        self.assertIn("foxglove_bridge", packages)
+        self.assertIn("robot_state_publisher", packages)
+        self.assertIn('"product_name": "LDLiDAR_LD14P"', source)
+        self.assertIn('"laser_scan_topic_name": "/scan"', source)
+        self.assertIn('"base_frame_id": "base_footprint"', source)
+        self.assertIn('"use_sim_time": "false"', source)
+
+    def test_ld14p_mapping_launch_does_not_start_motion_nodes(self) -> None:
+        source = (LAUNCH / "ld14p_mapping.launch.py").read_text()
+        packages = launched_packages(source)
+
+        self.assertNotIn("teleop_twist_keyboard", packages)
+        self.assertNotIn("robot_safety", packages)
+
 
 def read_pgm(path: Path) -> tuple[int, int, bytes]:
     """The width, height and pixels of a binary (P5) portable greymap."""
