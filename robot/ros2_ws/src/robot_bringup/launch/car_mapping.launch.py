@@ -20,13 +20,10 @@ SAFETY: the car is driven by a person with its own radio remote, outside
 robot_safety. Nothing started here can move it: the Pi only listens to the
 lidar, and must never be connected to the car's motor controller or radio.
 
-DEPENDENCY: LDRobot's driver, ldlidar_ros2, is not in rosdep or apt. Clone it
-with its SDK submodule into robot/ros2_ws/src, and build it on its own. On
-Ubuntu 24.04 its SDK misses an include, so it needs the extra flag:
-
-    git clone --recursive https://github.com/ldrobotSensorTeam/ldlidar_ros2
-    colcon build --packages-select ldlidar_ros2 \\
-        --cmake-args -DCMAKE_CXX_FLAGS="-include pthread.h"
+DEPENDENCY: LDRobot's driver, ldlidar_ros2, is not in rosdep or apt.
+robot/scripts/setup-pi.sh builds it in its own workspace, ~/ldlidar_ws, pinned
+and with the extra compiler flag Ubuntu 24.04 needs; don't also clone it into
+robot/ros2_ws/src.
 
 Its own ld14p.launch.py is deliberately NOT used: it also publishes
 base_link -> base_laser at a made-up height, and a second publisher of the

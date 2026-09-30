@@ -541,6 +541,20 @@ class RobotHttpApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body["safety"]["emergency_stop"])
 
+    def test_a_trip_is_cancelled_whoever_asks(self) -> None:
+        # Cancelling only ever ends a trip, so like the stop it must never
+        # fail on a header.
+        self.call("POST", "/api/goals", '{"location_name":"kitchen"}')
+
+        status, _ = self.call(
+            "POST", "/api/goals/cancel", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        _, body = self.call("GET", "/api/status")
+        self.assertEqual(body["goal"]["state"], "cancelled")
+
     def test_the_consoles_own_page_can_still_reset(self) -> None:
         self.call("POST", "/api/emergency_stop")
 

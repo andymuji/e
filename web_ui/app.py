@@ -510,11 +510,13 @@ def make_handler(app: RobotWebApp, web_root: Path):
                 # Ahead of the cross-site check on purpose: engaging is the
                 # safe direction, and a stop must never fail on a header.
                 return _Reply(200, app.engage_emergency_stop())
+            if path == "/api/goals/cancel":
+                # Also ahead of it: cancelling only ever ends a trip, so a
+                # cross-site cancel is harmless and a refused one is not.
+                return _Reply(200, app.cancel_goal())
             refusal = self._cross_site_refusal()
             if refusal is not None:
                 return _Reply(403, {"error": refusal})
-            if path == "/api/goals/cancel":
-                return _Reply(200, app.cancel_goal())
             if path == "/api/emergency_stop/reset":
                 return _Reply(200, app.reset_emergency_stop())
             if path == "/api/goals":
