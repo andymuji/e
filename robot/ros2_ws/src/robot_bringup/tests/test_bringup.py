@@ -236,6 +236,25 @@ class SafetyDistanceDerivationTests(unittest.TestCase):
             places=6,
         )
 
+    # DEFECT: the derivation charges the robot one sensor_period (0.1 s) of
+    # blind travel, but the gate keeps acting on a scan for up to
+    # sensor_timeout (0.5 s). A lidar that stalls for 0.4 s leaves the robot
+    # driving at full speed on a reading the stop distance does not cover.
+    @unittest.expectedFailure
+    def test_the_stop_distance_covers_the_oldest_scan_the_gate_accepts(
+        self,
+    ) -> None:
+        from dataclasses import replace
+
+        from robot_safety import derive_safety_distances
+
+        for name, params in self.parameter_files.items():
+            with self.subTest(config=name):
+                oldest = derive_safety_distances(
+                    replace(self.dynamics, sensor_period=params["sensor_timeout"])
+                )
+                self.assertGreaterEqual(params["stop_distance"], oldest.stop_distance)
+
     def test_caution_speed_scale_matches_what_the_gate_applies(self) -> None:
         from robot_safety import SafetyController
 

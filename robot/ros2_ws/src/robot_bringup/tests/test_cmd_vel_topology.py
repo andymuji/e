@@ -1148,6 +1148,16 @@ class OnlyTheGateCanReachTheWheelsTests(unittest.TestCase):
         )
         self.assertGreater(scanned, 20, f"only scanned {scanned} modules")
 
+    def test_the_web_console_creates_no_wheel_publisher(self) -> None:
+        # web_ui lives outside the ROS workspace, so the scan above never
+        # reaches it; it is served against a live graph all the same.
+        sources = sorted((SRC.parents[2] / "web_ui").glob("*.py"))
+        self.assertTrue(sources, "web_ui was not found to check")
+        for path in sources:
+            topics, unreadable = published_topics(path.read_text())
+            self.assertEqual(unreadable, [], f"{path.name}: unreadable publisher topic")
+            self.assertNotIn(WHEELS, {topic(name) for name in topics}, path.name)
+
     def test_the_gate_still_publishes_the_wheel_topic(self) -> None:
         # Without this the test above would pass on a workspace where the
         # gate had been moved, renamed, or deleted: it would simply find no
