@@ -92,6 +92,11 @@ fails if it is ever allowed to publish, call services, or set parameters. Map wi
 is being built), then navigate with `navigation.launch.py`, which now defaults
 to the committed `test_room` map.
 
+On the proof-of-concept RC car's Pi, map a real room with
+`ros2 launch robot_bringup car_mapping.launch.py` (lidar only, real clock,
+watch-only Foxglove, recorded); it needs `ldlidar_ros2` built from source -
+see that file.
+
 That map is generated from the world file, not driven: it has the same status
 as the placeholder URDF dimensions and for the same reason. **No robot has yet
 driven to a goal, in simulation or anywhere else.** The stack comes up, the

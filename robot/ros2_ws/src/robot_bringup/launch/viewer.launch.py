@@ -7,7 +7,8 @@ enter ws://<this machine>:8765. In a Codespace, forward port 8765 and use the
 wss:// address the Ports tab gives it instead.
 
 The same launch runs on the Pi for the proof of concept, with the Mac as the
-viewer: add `use_sim_time:=false` there, since there is no simulator clock.
+viewer: car_mapping.launch.py includes it with `use_sim_time:=false`, since
+there is no simulator clock.
 
 WATCH ONLY. Out of the box foxglove_bridge lets every connected client publish
 on any topic, call any service, and set any node's parameters. That means a
