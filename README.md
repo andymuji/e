@@ -12,8 +12,10 @@ below it is the original project brief and the engineering detail.
 ### What this project is
 
 A robot that will one day drive around the home of an elderly person and fetch
-things for them. Right now it is software only. **There is no robot.** Nobody
-has built one, bought one, or measured one.
+things for them. Right now it is software and a box of parts. The parts for a
+small first test base were bought in September 2026, but **nothing is
+assembled, nothing has been measured, and no robot has moved.** What happens
+next is in [the proof-of-concept plan](docs/poc-plan.md).
 
 ### What actually works today
 
@@ -70,6 +72,7 @@ has found a way around it.
 | If you want to know… | Read |
 |---|---|
 | What could go wrong, and what we do about it | [docs/hazard-analysis.md](docs/hazard-analysis.md) |
+| What is being built first, what's still to buy, and in what order | [docs/poc-plan.md](docs/poc-plan.md) |
 | How to build and run it yourself | [docs/getting-started.md](docs/getting-started.md) |
 | How the robot must be tested before anyone stands near it | [docs/safety-test-procedure.md](docs/safety-test-procedure.md) |
 | What was actually observed on real runs | [docs/runs/](docs/runs/README.md) |
