@@ -556,6 +556,39 @@ def launch_files() -> list[LaunchFile]:
     return [LaunchFile(path) for path in sorted(SRC.rglob("*.launch.py"))]
 
 
+def reachable_from(start: LaunchFile, launches: list[LaunchFile]) -> list[LaunchFile]:
+    """`start` and everything it includes, directly or through another.
+
+    An include names a path, and what is matched here is its basename, so
+    two packages shipping a launch file of the same name would be
+    indistinguishable and one would silently shadow the other. Every name
+    in the workspace is unique today, and this refuses to guess if that
+    ever stops being true - the point of this file is that a launch file
+    added tomorrow, in a package that does not exist yet, is covered.
+    """
+    by_name: dict[str, LaunchFile] = {}
+    for launch in launches:
+        if launch.name in by_name:
+            raise Unreadable(
+                f"two launch files are called {launch.name} "
+                f"({by_name[launch.name]} and {launch}), so an include "
+                "naming it cannot be followed to one of them"
+            )
+        by_name[launch.name] = launch
+    seen = {start.name}
+    pending = [start]
+    reachable = [start]
+    while pending:
+        current = pending.pop()
+        for name in current.included_launch_files():
+            if name in seen or name not in by_name:
+                continue
+            seen.add(name)
+            reachable.append(by_name[name])
+            pending.append(by_name[name])
+    return reachable
+
+
 class LaunchFileDiscoveryTests(unittest.TestCase):
     """The search has to actually find things, or every check below is empty.
 
@@ -849,36 +882,7 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
                     )
 
     def launch_files_reachable_from(self, start: LaunchFile) -> list[LaunchFile]:
-        """`start` and everything it includes, directly or through another.
-
-        An include names a path, and what is matched here is its basename, so
-        two packages shipping a launch file of the same name would be
-        indistinguishable and one would silently shadow the other. Every name
-        in the workspace is unique today, and this refuses to guess if that
-        ever stops being true - the point of this file is that a launch file
-        added tomorrow, in a package that does not exist yet, is covered.
-        """
-        by_name: dict[str, LaunchFile] = {}
-        for launch in self.launches:
-            if launch.name in by_name:
-                raise Unreadable(
-                    f"two launch files are called {launch.name} "
-                    f"({by_name[launch.name]} and {launch}), so an include "
-                    "naming it cannot be followed to one of them"
-                )
-            by_name[launch.name] = launch
-        seen = {start.name}
-        pending = [start]
-        reachable = [start]
-        while pending:
-            current = pending.pop()
-            for name in current.included_launch_files():
-                if name in seen or name not in by_name:
-                    continue
-                seen.add(name)
-                reachable.append(by_name[name])
-                pending.append(by_name[name])
-        return reachable
+        return reachable_from(start, self.launches)
 
     def test_navigation_declares_no_velocity_source_this_file_has_not_heard_of(
         self,
@@ -1171,6 +1175,125 @@ class OnlyTheGateCanReachTheWheelsTests(unittest.TestCase):
             "robot_safety/safety_node.py no longer publishes the wheel topic: "
             "either the gate moved or this test is looking in the wrong place",
         )
+
+
+# The one program that puts /cmd_vel onto real wheels, and where it lives.
+DRIVER_PACKAGE = "robot_base"
+DRIVER_EXECUTABLE = "base_node"
+
+# Topics that command motion or undo a stop. The driver is at the END of the
+# motion path, so it may publish none of them.
+ACTING_TOPICS = frozenset({
+    WHEELS,
+    REQUEST,
+    "cmd_vel_raw",
+    "emergency_stop_reset",
+})
+
+
+def subscribed_topics(source: str) -> tuple[set[str], list[str]]:
+    """Topics passed to create_subscription, and the ones that could not be read."""
+    tree = ast.parse(source)
+    known = source_assignments(tree)
+    topics: set[str] = set()
+    unreadable: list[str] = []
+    for call in ast.walk(tree):
+        if (
+            isinstance(call, ast.Call)
+            and getattr(call.func, "attr", None) == "create_subscription"
+            and len(call.args) >= 2
+        ):
+            try:
+                topics.update(constant_strings(call.args[1], known))
+            except Unreadable as reason:
+                unreadable.append(f"line {call.lineno}: {reason}")
+    return topics, unreadable
+
+
+class RealWheelsTopologyTests(unittest.TestCase):
+    """base_mapping.launch.py is the first launch file that turns real wheels.
+
+    Everything it starts, including what it pulls in from car_mapping.launch.py,
+    is followed here: exactly one gate publishing /cmd_vel, exactly one driver
+    consuming it, and nothing else anywhere near the wheel topic. The keyboard
+    runs separately, in its own terminal, so nothing it starts may steer.
+    """
+
+    def setUp(self) -> None:
+        self.launches = launch_files()
+        self.base_mapping = next(
+            launch for launch in self.launches if launch.name == "base_mapping.launch.py"
+        )
+        self.reachable = reachable_from(self.base_mapping, self.launches)
+        self.started = [
+            (launch, call) for launch in self.reachable for call in launch.node_actions()
+        ]
+
+    def is_the_driver(self, launch: LaunchFile, call: ast.Call) -> bool:
+        return (
+            launch.text_argument(call, "package") == DRIVER_PACKAGE
+            and launch.text_argument(call, "executable") == DRIVER_EXECUTABLE
+        )
+
+    def test_it_really_pulls_in_the_mapping_stack(self) -> None:
+        # Without this every check below could pass on base_mapping alone.
+        self.assertIn(
+            "car_mapping.launch.py", {launch.name for launch in self.reachable}
+        )
+        self.assertGreaterEqual(len(self.started), 6)
+
+    def test_exactly_one_gate_publishes_the_wheel_topic(self) -> None:
+        gates = [launch.describe(call) for launch, call in self.started
+                 if launch.is_the_gate(call)]
+
+        self.assertEqual(len(gates), 1, gates)
+
+    def test_exactly_one_driver_consumes_it_on_the_real_wheel_topic(self) -> None:
+        drivers = [
+            (launch, call) for launch, call in self.started
+            if self.is_the_driver(launch, call)
+        ]
+
+        self.assertEqual(len(drivers), 1)
+        launch, call = drivers[0]
+        # A remap on the driver would put the wheels on a topic the gate does
+        # not publish - or on the request topic, in front of the gate.
+        self.assertEqual(launch.remappings(call), [])
+
+    def test_nothing_else_it_starts_can_reach_or_steer_the_wheels(self) -> None:
+        for launch, call in self.started:
+            if launch.is_the_gate(call):
+                continue
+            with self.subTest(node=launch.describe(call)):
+                self.assertFalse(launch.is_a_velocity_source(call))
+                self.assertIsNone(launch.parameter_configured_output(call))
+                touched = {
+                    name for pair in launch.remappings(call) for name in pair
+                }
+                self.assertEqual(touched & ACTING_TOPICS, set())
+
+    def test_the_driver_listens_to_the_gates_output_and_nothing_else(self) -> None:
+        topics: set[str] = set()
+        for path in package_sources(DRIVER_PACKAGE):
+            found, unreadable = subscribed_topics(path.read_text())
+            self.assertEqual(unreadable, [], path.name)
+            topics |= {topic(name) for name in found}
+
+        self.assertEqual(topics, {WHEELS})
+
+    def test_the_driver_publishes_nothing_that_moves_or_releases_the_robot(
+        self,
+    ) -> None:
+        sources = package_sources(DRIVER_PACKAGE)
+        self.assertTrue(sources, "robot_base was not found to check")
+        for path in sources:
+            with self.subTest(module=path.name):
+                topics, unreadable = published_topics(path.read_text())
+
+                self.assertEqual(unreadable, [])
+                self.assertEqual({topic(name) for name in topics} & ACTING_TOPICS, set())
+                for text in code_strings(path.read_text()):
+                    self.assertNotIn("emergency_stop_reset", text)
 
 
 if __name__ == "__main__":

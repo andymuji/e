@@ -24,6 +24,7 @@
   <exec_depend>nav2_navfn_planner</exec_depend>
   <exec_depend>nav2_planner</exec_depend>
   <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>robot_base</exec_depend>
   <exec_depend>robot_description</exec_depend>
   <exec_depend>robot_locations</exec_depend>
   <exec_depend>robot_navigation</exec_depend>
