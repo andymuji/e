@@ -92,6 +92,9 @@ class VoiceNode(Node):
         # A stop can arrive while Nav2 is still accepting a goal, so this
         # flag, not the handle, decides whether the trip survives.
         self._trip_wanted = False
+        # The newest trip's answer from Nav2. An older one arriving late is a
+        # trip somebody has since stopped or replaced, never the current one.
+        self._trip_future = None
         # What the gate last said about its latch. False until it says
         # anything, as before: this node has never required the gate.
         self._latched = False
@@ -149,20 +152,24 @@ class VoiceNode(Node):
 
         self._trip_wanted = True
         future = self._navigator.send_goal_async(self._navigate_to_pose(goal))
+        self._trip_future = future
         future.add_done_callback(self._on_goal_response)
         return response
 
     def _on_goal_response(self, future) -> None:
         goal_handle = future.result()
+        current = future is self._trip_future
 
         if not goal_handle.accepted:
-            self._trip_wanted = False
+            if current:
+                self._trip_wanted = False
             self.get_logger().warning("navigation refused the goal")
             self._respond("Navigation would not take that trip.")
             return
 
-        if not self._trip_wanted:
-            # A stop arrived while the goal was still being accepted.
+        if not (current and self._trip_wanted):
+            # A stop, or a newer trip, arrived while this goal was still
+            # being accepted. Adopting it would revive a trip already let go.
             goal_handle.cancel_goal_async()
             return
 

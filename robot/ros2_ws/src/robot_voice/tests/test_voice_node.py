@@ -225,6 +225,24 @@ class VoiceNodeTests(unittest.TestCase):
         self.assertTrue(self.navigator.goal_handle().cancelled)
         self.assertIsNone(self.node._goal_handle)
 
+    def test_a_stopped_trip_accepted_late_is_not_revived_by_the_next(self) -> None:
+        # The kitchen trip is halted and a new one asked for, all before Nav2
+        # has accepted the kitchen goal. Its late acceptance belongs to a trip
+        # nobody wants any more, and must not become the one being driven.
+        self.speak("go to the kitchen")
+        self.speak("sto")
+        self.speak("go to the living room")
+
+        self.navigator.futures[0].answer()
+
+        self.assertTrue(self.navigator.goal_handle(0).cancelled)
+        self.assertIsNone(self.node._goal_handle)
+
+        self.navigator.futures[1].answer()
+
+        self.assertFalse(self.navigator.goal_handle(1).cancelled)
+        self.assertIs(self.node._goal_handle, self.navigator.goal_handle(1))
+
     def test_the_latch_can_be_left_to_the_operator_console(self) -> None:
         node = self.build_node(stop_engages_emergency_stop=False)
 
