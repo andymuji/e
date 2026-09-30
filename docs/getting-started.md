@@ -127,8 +127,8 @@ problems.
    Foxglove WebSocket** and enter `ws://robotpi.local:8765`. The script's
    last line also printed an address with numbers, to use if the name
    doesn't work.
-3. Add a **3D** panel, and turn on `/scan` and `/map` in its list of
-   topics.
+3. Set up the view as in [Set up the view in Foxglove](#set-up-the-view-in-foxglove)
+   below.
 
 The two Stage 1 checks in the plan are done here:
 
@@ -136,6 +136,87 @@ The two Stage 1 checks in the plan are done here:
   you carry the Pi and lidar around.
 - **A map forms** under `/map` as you carry them slowly round the whole
   room.
+
+## Rehearse the live map (no parts needed)
+
+This shows on your Mac exactly what you'll see while the car drives: a map
+filling in as a robot moves round a room. Here the robot and the room are
+simulated, in this Codespace, and you drive with the keyboard. Checked
+2026-09-30: the simulated room, the map builder and the viewer all start,
+and a map forms. Nobody has watched it from a Mac yet.
+
+The map will look cleaner than the car's. The simulated robot has wheel
+sensors to help it; the car doesn't, so its map drifts a little along long
+bare walls.
+
+Open three terminals in the Codespace (**Terminal → New Terminal**). In
+**each** one, first run:
+
+```bash
+cd /workspaces/e/robot/ros2_ws && source install/setup.bash && export ROS_DOMAIN_ID=49
+```
+
+(If `install/setup.bash` is missing, build first: see
+[Build the workspace](#build-the-workspace).)
+
+1. **Terminal 1: the simulated room, and the map builder.**
+
+   ```bash
+   ros2 launch robot_bringup simulation.launch.py rviz:=false headless:=true &
+   sleep 20 && ros2 launch robot_bringup slam.launch.py
+   ```
+
+2. **Terminal 2: the viewer your Mac connects to.** It's watch-only: nothing
+   connected to it can move the robot.
+
+   ```bash
+   ros2 launch robot_bringup viewer.launch.py
+   ```
+
+3. **Let the Mac reach it.** In the Codespace's **Ports** tab, find port
+   **8765**, right-click it, and set **Port Visibility → Public**. The
+   Foxglove app can't sign in to GitHub, so a private port turns it away.
+   Anyone with the address can then *watch* the simulation, nothing more.
+   Set it back to **Private** when you finish.
+4. **On the Mac,** open Foxglove, choose **Open connection → Foxglove
+   WebSocket**, and enter the address from the Ports tab with `https://`
+   changed to `wss://`, for example
+   `wss://<codespace-name>-8765.app.github.dev`. Then
+   [set up the view](#set-up-the-view-in-foxglove).
+5. **Terminal 3: drive.** The usual `teleop.launch.py` opens its own window,
+   which a Codespace can't show, so start the same keyboard driver directly.
+   Its commands still go through the safety gate:
+
+   ```bash
+   ros2 run teleop_twist_keyboard teleop_twist_keyboard \
+     --ros-args -r cmd_vel:=cmd_vel_requested -p use_sim_time:=true
+   ```
+
+   Click in this terminal, then use `i` (forward), `j` / `l` (turn),
+   `,` (back) and `k` (stop). Press `z` a few times first to slow down.
+   Drive slowly round the room and watch the map fill in on the Mac.
+
+To finish, press **Ctrl+C** in each terminal (in Terminal 1, also run
+`kill %1` for the simulation), and set port 8765 back to **Private**.
+
+### Set up the view in Foxglove
+
+The same steps work for the rehearsal and for the real car.
+
+1. Add a **3D** panel (or use the one Foxglove opens with).
+2. In the panel's settings, set the **display frame** to `map`, so the map
+   stays still and the robot moves across it.
+3. Under **Topics**, turn on `/map` (the map as it forms) and `/scan` (the
+   dots the lidar sees right now).
+4. Under **Transforms**, keep `base_link` on. Its arrow is the robot, or the
+   car, and points the way it's facing.
+5. Switch the camera to **2D** for a flat, top-down view.
+
+What to expect: the dots update several times a second; the map is redrawn
+about once a second on the car (every 2 seconds in the rehearsal), so it
+fills in in steps rather than smoothly. If the
+screen freezes, the Wi-Fi (or the Codespace connection) dropped. The map
+carries on building where it runs, so just reconnect.
 
 ## Run the simulation
 
