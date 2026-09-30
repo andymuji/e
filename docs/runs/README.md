@@ -13,6 +13,12 @@ The recordings themselves (`.mcap`, 2-3 MB each) are not committed. They are
 in `/root/robot_runs/` on the machine that made them; ask before assuming they
 still exist.
 
+## `stop-test-form.md`
+
+Not a run: the blank form for the stop tests in Stage 5 of
+[../poc-plan.md](../poc-plan.md). Print it, fill it in by hand, and commit a
+scan or photo of the filled-in form here, next to the recording reports.
+
 ## `idle-gate-check-20260921-164231.txt`
 
 A stationary robot, 75.9 s. The gate held the robot stopped the whole time
