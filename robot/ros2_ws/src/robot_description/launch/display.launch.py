@@ -36,6 +36,10 @@ def generate_launch_description() -> LaunchDescription:
             package="rviz2",
             executable="rviz2",
             output="screen",
-            arguments=["-d", str(share / "rviz" / "robot.rviz")],
+            # robot.rviz is fixed to odom, which only the simulator's drive
+            # publishes; with no simulator RViz would show no robot at all.
+            arguments=[
+                "-d", str(share / "rviz" / "robot.rviz"), "-f", "base_footprint",
+            ],
         ),
     ])
