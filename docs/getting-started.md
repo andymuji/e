@@ -26,12 +26,23 @@ source install/setup.bash
 > fails, copy the whole message on screen and bring it back here.
 
 This is Stage 1 of [the proof-of-concept plan](poc-plan.md): the Pi
-learns to see the room with the lidar, and you watch it on the Mac. No
-car is involved yet. Nothing below can drive anything: the Pi only
-listens to the lidar.
+learns to see the room with the lidar, and you watch it on the Mac. The
+wheeled base isn't involved yet: the Pi and lidar are carried by hand.
+Nothing below can drive anything: the Pi only listens to the lidar.
 
-You need the Pi, its microSD card, the power bank, the lidar with its USB
-adapter, and the Mac.
+**Have these ready:**
+
+- the Pi 4, and a microSD card of 32 GB or more;
+- a way to put the microSD card into the Mac (a card reader or adapter);
+- the power bank and a USB-C cable for the Pi (5 V 3 A);
+- the lidar, its small USB adapter board, and a cable from that board to
+  the Pi. The kit lists no USB cable, so check the adapter's socket and
+  that you have a cable to fit it;
+- the Mac, with **Raspberry Pi Imager** and the **Foxglove** app
+  installed, and your Wi-Fi's name and password.
+
+**To save an hour on the day,** do step 1 (writing the card) beforehand.
+The setup script in step 3 then runs for an hour or more on its own.
 
 ### 1. Put Ubuntu on the microSD card (on the Mac)
 
@@ -45,8 +56,10 @@ adapter, and the Mac.
    settings, choose **Edit settings** and fill in:
    - **Hostname:** `robotpi`. The rest of this guide assumes that name.
    - **Username and password:** choose your own and write them down.
-   - **Wireless LAN:** the name and password of your **5 GHz** Wi-Fi, and
-     your country. The car's remote uses 2.4 GHz, so the Pi must not.
+   - **Wireless LAN:** the name and password of your Wi-Fi, and your
+     country. If your router has a separate **5 GHz** network, use that
+     one: the live map view sends a lot to the Mac, and 5 GHz is faster
+     and less crowded. 2.4 GHz still works, just more slowly.
    - On the **Services** tab, tick **Enable SSH** with password
      authentication. This is what lets the Mac log in to the Pi.
 6. Save, write the card, and put it in the Pi.
@@ -68,19 +81,29 @@ After the setup script has run, the name works.
 
 ### 3. Run the setup script (on the Pi)
 
-Still logged in to the Pi, type:
+Still logged in to the Pi, first type `tmux` and press Enter. The screen
+barely changes, but from now on whatever runs keeps running on the Pi even
+if the Mac's connection drops. If it does drop, log in again (step 2) and
+type `tmux attach` to get back to it.
+
+Then type:
 
 ```bash
-git clone https://github.com/andymuji/e.git
+git clone -b derive-safety-margins-and-navigation https://github.com/andymuji/e.git
 cd e
 robot/scripts/setup-pi.sh
 ```
 
+The `-b derive-safety-margins-and-navigation` part matters: it is the
+branch all the Pi work is on. Without it you get `main`, which doesn't
+have the setup script yet.
+
 It asks for your password (sometimes more than once) and takes a long
-time: expect an hour or more. Leave it running, and keep the Mac awake:
-if the Mac sleeps, the connection drops and the script stops. It is safe
-to run again if it stops half-way for any reason; it skips what is
-already done.
+time: expect an hour or more. Leave it running. It is safe to run again
+if it stops half-way for any reason; it skips what is already done.
+
+To get later changes onto the Pi, type `cd ~/e && git pull`, then run
+the script again: it rebuilds only what changed.
 
 The number 42 is the Pi's **ROS domain ID**: think of it as a private
 channel number. Programs on any other computer using a different number
@@ -104,7 +127,7 @@ stopped on purpose and says why.
 |---|---|---|
 | `Is this the right computer?` then `OK` | The card holds Ubuntu 24.04, 64-bit. | Nothing. If it stops here, re-do step 1 with the right image. |
 | `Memory (free -h)` | The line starting `Mem:` shows the Pi's memory under `total`: about `900Mi` means a 1 GB Pi, `1.8Gi` a 2 GB, `3.7Gi` a 4 GB, `7.6Gi` an 8 GB. | Write it down: it answers open question 2 in the plan. Under 2 GB the script adds extra memory on the card ("swap") and builds more slowly. |
-| `Wi-Fi: OK, 5 GHz` | The Pi is on the 5 GHz network. | Nothing. `PROBLEM, 2.4 GHz` means it joined the band the car's remote uses; point it at the 5 GHz network. |
+| `Wi-Fi: OK, 5 GHz` | The Pi is on the 5 GHz network. | Nothing. `2.4 GHz` means it joined the slower band. It still works; if the live map view stutters, point the Pi at the 5 GHz network. |
 | `Lidar: OK` | The lidar's USB adapter is plugged in and seen. | Nothing. `no USB adapter seen` is fine if it isn't plugged in yet. Plug it in and type `ls /dev/ttyUSB*`: it should print `/dev/ttyUSB0`. |
 | `Power: OK` | The power bank has kept the Pi supplied, and it hasn't overheated, since it started. | Nothing. Any `PROBLEM` about voltage means the power bank isn't giving a steady 5 V 3 A (open question 3 in the plan): try another power bank or cable. |
 | `Done` | Everything is installed and built. | Restart, as above. |

@@ -92,10 +92,14 @@ fails if it is ever allowed to publish, call services, or set parameters. Map wi
 is being built), then navigate with `navigation.launch.py`, which now defaults
 to the committed `test_room` map.
 
-On the proof-of-concept RC car's Pi, map a real room with
+On the proof-of-concept Pi, map a real room with
 `ros2 launch robot_bringup car_mapping.launch.py` (lidar only, real clock,
 watch-only Foxglove, recorded); it needs `ldlidar_ros2` built from source -
 see that file.
+With the wheeled base (Stage 3 on), `base_mapping.launch.py` adds the gate and
+the `robot_base` driver; drive it over ssh with `teleop_twist_keyboard`
+remapped to `cmd_vel_requested`, never `cmd_vel`. `robot/scripts/setup-pi.sh`
+sets the Pi up; clone the branch it is on, not `main`.
 
 That map is generated from the world file, not driven: it has the same status
 as the placeholder URDF dimensions and for the same reason. **No robot has yet

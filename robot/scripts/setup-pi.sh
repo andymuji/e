@@ -10,12 +10,14 @@
 #   robot/scripts/setup-pi.sh [ROS_DOMAIN_ID]      default 42, allowed 1-101
 # Safe to run again: every step checks what is already done.
 #
-# The Pi only listens. Nothing installed here talks to the car's motor
-# controller or radio receiver, and the workspace's only keyboard driving
-# program (teleop_twist_keyboard) is skipped on purpose, along with the
-# simulator and the screen tools (Gazebo, RViz), which a Pi with no screen
-# cannot use. Nav2 is still installed, because the workspace lists it, but
-# nothing in Stage 1 starts it.
+# Nothing this script starts can move anything. It builds the whole
+# workspace, including the base driver (robot_base) and the keyboard driver
+# (teleop_twist_keyboard) that Stage 3 uses over ssh, but only
+# base_mapping.launch.py starts the driver, and then behind the safety gate.
+# Stage 1's car_mapping.launch.py only listens to the lidar. The simulator
+# and the screen tools (Gazebo, RViz) are skipped: a Pi with no screen
+# cannot use them. Nav2 is still installed, because the workspace lists it,
+# but nothing in Stages 1-6 starts it.
 set -euo pipefail
 
 DOMAIN_ID=${1:-42}
@@ -31,9 +33,9 @@ LIDAR_COMMIT=0f6101c93db0b4448cbe7a654826adcdee50622f
 # either: every package here lists both, which is why the usual command
 # carries -r. Skipping just those keys lets any other failure stop this
 # script instead of scrolling past.
-# slam_toolbox is skipped because the car maps with Cartographer, and its
+# slam_toolbox is skipped because the real room is mapped with Cartographer, and its
 # package would pull RViz and Qt onto the Pi anyway.
-SKIP_KEYS="ament_python ament_pytest rviz2 ros_gz_sim ros_gz_bridge joint_state_publisher_gui teleop_twist_keyboard slam_toolbox"
+SKIP_KEYS="ament_python ament_pytest rviz2 ros_gz_sim ros_gz_bridge joint_state_publisher_gui slam_toolbox"
 
 say() { printf '\n== %s\n' "$*"; }
 fail() { printf '\nSTOPPED: %s\n' "$*" >&2; exit 1; }
@@ -158,7 +160,7 @@ echo "OK: ROS_DOMAIN_ID=$DOMAIN_ID."
 
 say "Checks"
 if command -v iw >/dev/null && freq=$(iw dev wlan0 link 2>/dev/null | awk '/freq:/ {print int($2)}') && [[ -n $freq ]]; then
-  if ((freq >= 5000)); then echo "Wi-Fi: OK, 5 GHz ($freq MHz)."; else echo "Wi-Fi: PROBLEM, 2.4 GHz ($freq MHz), the band the car's remote uses."; fi
+  if ((freq >= 5000)); then echo "Wi-Fi: OK, 5 GHz ($freq MHz)."; else echo "Wi-Fi: 2.4 GHz ($freq MHz). It works; 5 GHz is faster for the live map view."; fi
 else
   echo "Wi-Fi: could not read the band; skipped."
 fi
