@@ -14,9 +14,9 @@ supply map->odom instead:
     ros2 launch robot_bringup slam.launch.py
     ros2 launch robot_bringup navigation.launch.py slam:=true
 
-That is how the committed map was made: Nav2 drove the robot around the room
-under goals while slam_toolbox mapped it. Mapping stays in slam.launch.py,
-which launches nothing that can drive.
+The committed map was not made this way: it is generated from the world file,
+and no robot has yet driven to a goal. Mapping stays in slam.launch.py, which
+launches nothing that can drive.
 
 SAFETY: Nav2 is a motion source, not a motion authority. Every node below
 that can emit a velocity has cmd_vel remapped away from the wheels, so its
