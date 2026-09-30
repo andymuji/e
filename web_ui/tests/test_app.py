@@ -470,6 +470,51 @@ class RobotHttpApiTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("emergency stop", payload["error"])
 
+    def test_another_site_cannot_release_the_stop_or_send_the_robot(self) -> None:
+        # What a page elsewhere in the operator's browser can send without
+        # the console's permission: a form post or a no-cors fetch, neither
+        # of which can be JSON, and a foreign Origin on anything it sends.
+        self.call("POST", "/api/emergency_stop")
+        cross_site = [
+            {"Content-Type": "text/plain"},
+            {"Content-Type": "application/x-www-form-urlencoded"},
+            {"Origin": "http://evil.example"},
+            {"Origin": "null"},
+        ]
+
+        for headers in cross_site:
+            with self.subTest(headers=headers):
+                status, _ = self.call("POST", "/api/emergency_stop/reset", "", headers)
+                self.assertEqual(status, 403)
+                status, _ = self.call(
+                    "POST", "/api/goals", '{"location_name":"kitchen"}', headers
+                )
+                self.assertEqual(status, 403)
+
+        _, body = self.call("GET", "/api/status")
+        self.assertTrue(body["safety"]["emergency_stop"])
+        self.assertEqual(body["goal"]["state"], "ready")
+
+    def test_the_stop_is_engaged_whoever_asks(self) -> None:
+        status, body = self.call(
+            "POST", "/api/emergency_stop", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["safety"]["emergency_stop"])
+
+    def test_the_consoles_own_page_can_still_reset(self) -> None:
+        self.call("POST", "/api/emergency_stop")
+
+        status, body = self.call(
+            "POST", "/api/emergency_stop/reset", "",
+            {"Origin": f"http://127.0.0.1:{self.port}"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(body["safety"]["emergency_stop"])
+
     def test_unknown_routes_answer_json(self) -> None:
         for method, path in (("GET", "/api/nope"), ("POST", "/api/nope")):
             with self.subTest(method=method, path=path):
@@ -635,6 +680,14 @@ class ConsoleMarkupTests(unittest.TestCase):
         unknown_branch = self.script.split("if (engaged === null)")[1].split("return;")[0]
 
         self.assertIn("estopReset.hidden = true", unknown_branch)
+
+    def test_the_page_sends_json_wherever_the_server_requires_it(self) -> None:
+        # The server refuses anything else as cross-site, so a call the page
+        # makes without it is a reset or cancel button that silently 403s.
+        for path in ("/api/goals/cancel", "/api/emergency_stop/reset"):
+            with self.subTest(path=path):
+                call = self.script.split(f'request("{path}"')[1].split("})")[0]
+                self.assertIn('"Content-Type": "application/json"', call)
 
     def test_a_missing_latch_field_is_treated_as_unknown(self) -> None:
         # Not as released: a status payload without the field tells the

@@ -386,7 +386,7 @@ labelForm.addEventListener("submit", async (event) => {
 
 cancelButton.addEventListener("click", async () => {
   cancelButton.disabled = true;
-  try { await request("/api/goals/cancel", { method: "POST" }); await refreshStatus(); }
+  try { await request("/api/goals/cancel", { method: "POST", headers: { "Content-Type": "application/json" } }); await refreshStatus(); }
   catch (error) { showError(error); }
   finally { cancelButton.disabled = false; }
 });
@@ -440,7 +440,7 @@ estopButton.addEventListener("click", async () => {
 estopReset.addEventListener("click", async () => {
   if (!window.confirm("Release the emergency stop? Check the robot is clear first.")) return;
   estopReset.disabled = true;
-  try { renderStatus(await request("/api/emergency_stop/reset", { method: "POST" })); }
+  try { renderStatus(await request("/api/emergency_stop/reset", { method: "POST", headers: { "Content-Type": "application/json" } })); }
   catch (error) { showError(error); await refreshStatus(); }
   finally { estopReset.disabled = false; }
 });

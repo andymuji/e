@@ -491,10 +491,15 @@ def make_handler(app: RobotWebApp, web_root: Path):
             return _Reply(404, {"error": "not found"})
 
         def _route_post(self, path: str) -> "_Reply":
+            if path == "/api/emergency_stop":
+                # Ahead of the cross-site check on purpose: engaging is the
+                # safe direction, and a stop must never fail on a header.
+                return _Reply(200, app.engage_emergency_stop())
+            refusal = self._cross_site_refusal()
+            if refusal is not None:
+                return _Reply(403, {"error": refusal})
             if path == "/api/goals/cancel":
                 return _Reply(200, app.cancel_goal())
-            if path == "/api/emergency_stop":
-                return _Reply(200, app.engage_emergency_stop())
             if path == "/api/emergency_stop/reset":
                 return _Reply(200, app.reset_emergency_stop())
             if path == "/api/goals":
@@ -520,6 +525,21 @@ def make_handler(app: RobotWebApp, web_root: Path):
                 body = self._json_object()
                 return _Reply(200, app.remove_location(self._field(body, "name")))
             return _Reply(404, {"error": "not found"})
+
+        def _cross_site_refusal(self) -> str | None:
+            """Refuse a POST that another web page could have sent.
+
+            Any site open in the operator's browser can POST to this console
+            without being able to read the answer, and a form or a no-cors
+            fetch cannot carry a JSON content type. Without this, a page
+            elsewhere could release the latched stop or send the robot off.
+            """
+            origin = self.headers.get("Origin")
+            if origin is not None and urlparse(origin).netloc != self.headers.get("Host"):
+                return "refused a request sent from another site"
+            if self.headers.get_content_type() != "application/json":
+                return "requests must be sent as application/json"
+            return None
 
         @staticmethod
         def _field(body: dict[str, Any], name: str) -> Any:
