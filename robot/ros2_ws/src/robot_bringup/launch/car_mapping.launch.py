@@ -12,9 +12,13 @@ Run it in a foreground terminal (tmux on the Pi, so a dropped ssh session
 does not end the run) and stop it with Ctrl-C. Killed any other way, the
 recording can be left without its metadata.yaml.
 
-When the map covers the room, save it from a second terminal:
+When the map covers the room, save it from a second terminal, from any
+folder (see robot_bringup/save_map.py for where the files go):
 
-    ros2 run nav2_map_server map_saver_cli -f maps/<room>
+    ros2 run robot_bringup save_map <room>
+
+If the live map went wrong, rebuild it from this run's recording with
+map_from_recording.launch.py.
 
 SAFETY: the car is driven by a person with its own radio remote, outside
 robot_safety. Nothing started here can move it: the Pi only listens to the
