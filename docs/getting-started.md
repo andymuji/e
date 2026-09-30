@@ -137,6 +137,98 @@ The two Stage 1 checks in the plan are done here:
 - **A map forms** under `/map` as you carry them slowly round the whole
   room.
 
+### 6. Save the map (on the Pi)
+
+> **Checked in the simulation only.** The save and the rebuild below were
+> tried on 2026-09-30 against a simulated robot. Nobody has run them on the
+> Pi yet.
+
+When the map on screen covers the whole room, leave the mapping running and
+open a **second** connection to the Pi from the Mac (step 2 again, in a new
+Terminal window). Then type, with a name for the room made of lower-case
+letters, digits and `_`:
+
+```bash
+ros2 run robot_bringup save_map living_room
+```
+
+What it does, in order:
+
+1. **Ends the mapping.** The map stops changing from this moment. To map
+   more, stop the mapping with Ctrl+C and start it again.
+2. **Saves the map into the project,** as two files in
+   `robot/ros2_ws/src/robot_bringup/maps/`: `living_room.pgm` is the
+   picture, and `living_room.yaml` says how big each dot is and where the
+   picture sits. It doesn't matter which folder the terminal is in.
+3. **Keeps Cartographer's full working** as `~/robot_runs/living_room.pbstream`,
+   next to the recordings. It holds every scan the map was built from, so a
+   later tool can extend or improve the map without driving again. It stays
+   out of git on purpose: it is several megabytes for one room, grows the
+   longer you drive, and nothing uses it yet.
+
+**Success looks like** a few lines about saving, then `SAVED.` and the three
+file names. The two in `maps/` are the ones to commit.
+
+**It refuses, and changes nothing,** when:
+
+- the name is `test_room`. That map is drawn from the simulated room, and
+  the tests check it exactly. Pick the real room's name.
+- the name has spaces, capitals or a `/` in it.
+- a map with that name is already there. Pick another name, or add
+  `--force` to the end of the command to replace it.
+- the mapping isn't running (`Cartographer did not answer`). Check the
+  first connection is still running it.
+
+Every refusal starts with `NOT SAVED:` and says why.
+
+Then stop the mapping in the first connection with **Ctrl+C**. That also
+finishes the recording.
+
+To look at the map, copy `living_room.pgm` to the Mac and open it in an
+image viewer that reads `.pgm` files (GIMP does). White is floor the lidar
+saw, black is walls and furniture, and grey is anywhere it never saw.
+
+### 7. If the map came out wrong: rebuild it from the recording
+
+The mapping also records everything the lidar saw, in a folder in
+`~/robot_runs` named after the time it started, for example
+`car-mapping-20261004-101500`. If the saved map is smeared or bent, the
+drive can be replayed into a fresh map without driving again. List the
+recordings to find the right one (the newest is at the bottom):
+
+```bash
+ls ~/robot_runs
+```
+
+Then, with the mapping stopped:
+
+```bash
+ros2 launch robot_bringup map_from_recording.launch.py \
+  recording:=~/robot_runs/car-mapping-20261004-101500 room:=living_room_2
+```
+
+What it does: plays the lidar part of the recording back into a new map
+builder, with the same settings as the live run, then saves the result
+exactly as `save_map` does, and stops by itself. It takes as long as the
+drive did. Add `rate:=2.0` to play it twice as fast, and `force:=true` to
+replace an existing map of the same name.
+
+**Success looks like** `SAVED.` and the file names near the end, and then
+the launch closing on its own. The picture may come out turned compared
+with the live map: a map is drawn from the direction the car faced at the
+first scan it was built from. The room's shape is what matters. It checks the name and the recording before
+it starts, so a wrong name or a broken recording is refused at once.
+
+It is safe to run on a computer that is on the same network as a running
+robot. The replay is kept apart from the live topics (under
+`/map_rebuild`), so no robot can mistake the old scans for what its lidar
+sees now. It never replays the recorded movement commands or the stop
+reset.
+
+If it says the recording has no `metadata.yaml`, the mapping was stopped
+some other way than Ctrl+C. Type `ros2 bag reindex` followed by the
+recording's folder to repair it, then try again.
+
 ## Rehearse the live map (no parts needed)
 
 This shows on your Mac exactly what you'll see while the car drives: a map
@@ -279,6 +371,13 @@ map Nav2 localizes against is a reviewed artifact:
 ```bash
 ros2 run nav2_map_server map_saver_cli -f maps/test_room
 ```
+
+That writes into `maps/` under whatever folder the terminal is in. The
+real room is mapped with Cartographer instead of SLAM Toolbox, and saved
+with `ros2 run robot_bringup save_map <room>`, which always writes to the
+project's `maps/` folder: see [Save the map](#6-save-the-map-on-the-pi).
+`save_map` only works with Cartographer, so it cannot save this simulated
+SLAM Toolbox map.
 
 A map saved without driving the robot around covers only what the lidar saw
 from the spawn point, and a goal outside that patch is rejected with "Start

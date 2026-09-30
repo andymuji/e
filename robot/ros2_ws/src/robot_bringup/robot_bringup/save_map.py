@@ -231,7 +231,8 @@ def save(chosen: Targets) -> None:
             ).status
             if status.code != StatusCode.OK:
                 raise Refused(f"Cartographer would not finish: {status.message}")
-            print(f"Finished mapping (trajectory {trajectory_id}).")
+            # Flushed, or it prints after map_saver_cli's own output.
+            print(f"Finished mapping (trajectory {trajectory_id}).", flush=True)
         time.sleep(SETTLE_SECONDS)
 
         namespace = node.get_namespace().rstrip("/")
