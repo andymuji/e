@@ -19,6 +19,124 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+## Set up the Pi (proof of concept, Stage 1)
+
+> **Written, not yet run on a Pi.** Nobody has followed these steps on real
+> hardware yet. Expect the first attempt to find something. If a step
+> fails, copy the whole message on screen and bring it back here.
+
+This is Stage 1 of [the proof-of-concept plan](poc-plan.md): the Pi
+learns to see the room with the lidar, and you watch it on the Mac. No
+car is involved yet. Nothing below can drive anything: the Pi only
+listens to the lidar.
+
+You need the Pi, its microSD card, the power bank, the lidar with its USB
+adapter, and the Mac.
+
+### 1. Put Ubuntu on the microSD card (on the Mac)
+
+1. Install **Raspberry Pi Imager** from raspberrypi.com/software.
+2. Put the microSD card in the Mac and open Imager.
+3. Choose **Raspberry Pi 4** as the device.
+4. For the operating system, choose **Other general-purpose OS → Ubuntu →
+   Ubuntu Server 24.04 LTS (64-bit)**. It must be *Server*, *24.04* and
+   *64-bit*; the setup script refuses anything else.
+5. Choose the microSD card, then **Next**. When Imager offers to apply
+   settings, choose **Edit settings** and fill in:
+   - **Hostname:** `robotpi`. The rest of this guide assumes that name.
+   - **Username and password:** choose your own and write them down.
+   - **Wireless LAN:** the name and password of your **5 GHz** Wi-Fi, and
+     your country. The car's remote uses 2.4 GHz, so the Pi must not.
+   - On the **Services** tab, tick **Enable SSH** with password
+     authentication. This is what lets the Mac log in to the Pi.
+6. Save, write the card, and put it in the Pi.
+
+### 2. Log in to the Pi from the Mac
+
+Power the Pi from the power bank and wait about five minutes: the first
+start is slow. Then open **Terminal** on the Mac and type (with your
+username):
+
+```bash
+ssh yourname@robotpi.local
+```
+
+Answer `yes` the first time, then give your password. If `robotpi.local`
+is not found, look up the Pi's address in your Wi-Fi router's list of
+connected devices and use that instead, for example `ssh yourname@192.168.1.23`.
+After the setup script has run, the name works.
+
+### 3. Run the setup script (on the Pi)
+
+Still logged in to the Pi, type:
+
+```bash
+git clone https://github.com/andymuji/e.git
+cd e
+robot/scripts/setup-pi.sh
+```
+
+It asks for your password (sometimes more than once) and takes a long
+time: expect an hour or more. Leave it running, and keep the Mac awake:
+if the Mac sleeps, the connection drops and the script stops. It is safe
+to run again if it stops half-way for any reason; it skips what is
+already done.
+
+The number 42 is the Pi's **ROS domain ID**: think of it as a private
+channel number. Programs on any other computer using a different number
+can't see the Pi's programs or mix with them. To choose another number
+from 1 to 101, put it at the end, for example
+`robot/scripts/setup-pi.sh 17`. Foxglove doesn't use this number.
+
+When it finishes, restart the Pi so the new settings take effect, then log
+in again as in step 2:
+
+```bash
+sudo reboot
+```
+
+### 4. What the script checks, and what to do about it
+
+Each check prints a heading starting with `==`. `STOPPED:` means the script
+stopped on purpose and says why.
+
+| What it prints | What it means | What to do |
+|---|---|---|
+| `Is this the right computer?` then `OK` | The card holds Ubuntu 24.04, 64-bit. | Nothing. If it stops here, re-do step 1 with the right image. |
+| `Memory (free -h)` | The line starting `Mem:` shows the Pi's memory under `total`: about `900Mi` means a 1 GB Pi, `1.8Gi` a 2 GB, `3.7Gi` a 4 GB, `7.6Gi` an 8 GB. | Write it down: it answers open question 2 in the plan. Under 2 GB the script adds extra memory on the card ("swap") and builds more slowly. |
+| `Wi-Fi: OK, 5 GHz` | The Pi is on the 5 GHz network. | Nothing. `PROBLEM, 2.4 GHz` means it joined the band the car's remote uses; point it at the 5 GHz network. |
+| `Lidar: OK` | The lidar's USB adapter is plugged in and seen. | Nothing. `no USB adapter seen` is fine if it isn't plugged in yet. Plug it in and type `ls /dev/ttyUSB*`: it should print `/dev/ttyUSB0`. |
+| `Power: OK` | The power bank has kept the Pi supplied, and it hasn't overheated, since it started. | Nothing. Any `PROBLEM` about voltage means the power bank isn't giving a steady 5 V 3 A (open question 3 in the plan): try another power bank or cable. |
+| `Done` | Everything is installed and built. | Restart, as above. |
+
+To check the power again later, for example after carrying the Pi around
+for a while, type `vcgencmd get_throttled`. `throttled=0x0` means no
+problems.
+
+### 5. Watch the lidar in Foxglove (on the Mac)
+
+1. Plug the lidar into the Pi. On the Pi, start the lidar, the map builder
+   and the Foxglove connection:
+
+   ```bash
+   ros2 launch robot_bringup car_mapping.launch.py
+   ```
+
+   Leave it running. To stop it later, press **Ctrl+C**.
+2. On the Mac, open the **Foxglove** app. Choose **Open connection →
+   Foxglove WebSocket** and enter `ws://robotpi.local:8765`. The script's
+   last line also printed an address with numbers, to use if the name
+   doesn't work.
+3. Add a **3D** panel, and turn on `/scan` and `/map` in its list of
+   topics.
+
+The two Stage 1 checks in the plan are done here:
+
+- **The outline of the room** appears as dots from `/scan`, and moves as
+  you carry the Pi and lidar around.
+- **A map forms** under `/map` as you carry them slowly round the whole
+  room.
+
 ## Run the simulation
 
 ```bash
