@@ -221,17 +221,24 @@ the one before it works.
 
 - [ ] Answer the [open questions](#open-questions) below.
 - [ ] Install the Foxglove app on the Mac.
-- [ ] Add a launch file for the real car. It starts the lidar program,
+- [x] Add a launch file for the real car. It starts the lidar program,
       Cartographer set to use the lidar only, and `foxglove_bridge`, all on
       the real clock. The existing `slam.launch.py` is fixed to the
       simulator's clock, so on the Pi it would wait forever.
-- [ ] Decide which one program publishes the lidar's position on the car.
+      **Done 2026-09-30:** `ros2 launch robot_bringup car_mapping.launch.py`.
+      It also records the run. Tried here against a fake lidar only.
+- [x] Decide which one program publishes the lidar's position on the car.
       LDRobot's launch file publishes its own, and it doesn't match this
-      repository's names.
+      repository's names. **Decided:** the car launch file's own static
+      transform, `base_link` → `lidar_link`. LDRobot's launch file isn't used.
 
 ### Stage 1 — The Pi sees the room
 
 Needs: Pi, lidar, power bank, Mac.
+
+Follow "Set up the Pi" in [getting-started.md](getting-started.md). It runs
+`robot/scripts/setup-pi.sh`, which does most of this stage. Written, not yet
+run on a Pi.
 
 - [ ] Install Ubuntu 24.04 Server (64-bit) and ROS 2 Jazzy on the Pi, then
       build this repository on it.
@@ -302,7 +309,9 @@ which this car doesn't have. Those steps still apply to the real robot.
       drives, the other holds the emergency stop. Tether the car.
 - [ ] Record the run. Start the map builder on the Pi and watch it in
       Foxglove. Drive slowly round the room until the map on screen covers
-      all of it.
+      all of it. `car_mapping.launch.py` does both: start it inside `tmux`
+      on the Pi and stop it with Ctrl-C, or the recording can be left
+      unfinished. Its report will say `INCONCLUSIVE`, which is expected.
 - [ ] Save the map, commit it to `robot_bringup/maps/`, and commit the
       recording and the stop-test notes to `docs/runs/`.
 - [ ] **The proof of concept is done.**
@@ -340,7 +349,7 @@ These change what gets built or bought. Answer them before Stage 0 finishes.
 | Car stays still when the stop is reset | You, Stage 4 | The listing doesn't say whether its motor controller waits for the throttle to be at rest |
 | Relay really has a 5 V coil, and has a protection diode | Whoever wires it, on arrival | The listing contradicts itself |
 | Lidar's USB adapter socket, and a cable to fit it | On arrival | The kit lists no USB cable |
-| Lidar program builds on Jazzy | Stage 1 | Only "foxy and above" is claimed |
+| Lidar program builds on Jazzy | Stage 1 | Builds on a PC (2026-09-30) only after two fixes, which `setup-pi.sh` applies. Still unconfirmed on the Pi |
 | WAGO connectors are genuine | On arrival | Sold by a reseller, not WAGO |
 
 ## What changed on 2026-09-28, and why
