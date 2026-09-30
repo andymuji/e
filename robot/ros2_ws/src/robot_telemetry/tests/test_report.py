@@ -15,6 +15,7 @@ from robot_telemetry.records import (
     SAFETY_STATE,
     SCAN,
     Flag,
+    Opaque,
     Record,
     SafetyStatus,
     Scan,
@@ -115,6 +116,33 @@ class VerdictTests(unittest.TestCase):
         self.assertIs(report.verdict, Verdict.INCOMPLETE)
         self.assertNotEqual(report.verdict.exit_code, 0)
         self.assertIn("topic graph was not", report.render())
+
+    def test_a_run_with_no_safety_gate_is_never_a_pass(self):
+        """The RC car in docs/poc-plan.md: lidar, tf and a map, and no gate.
+
+        Its remote drives the motors directly, so there is no /cmd_vel,
+        /safety_state or stop topic for any check to read. The plan promises
+        this report will not be green; this is what holds it to that.
+        """
+        records = run(
+            (0.0, "/tf_static", Opaque("TFMessage")),
+            *((0.1 * tick, SCAN, Scan(0.30)) for tick in range(1, 50)),
+            *((0.1 * tick, "/tf", Opaque("TFMessage")) for tick in range(1, 50)),
+            (1.0, "/map", Opaque("OccupancyGrid")),
+            (2.0, "/map", Opaque("OccupancyGrid")),
+        )
+        # What graph_probe writes on the car: the lidar node, and nobody else.
+        car_graph = {
+            topic: [] for topic in (CMD_VEL, SAFETY_STATE, EMERGENCY_STOP)
+        } | {SCAN: ["/ldlidar"]}
+        for publishers in (car_graph, None):
+            with self.subTest(publishers=publishers):
+                report = report_for(records, publishers)
+                self.assertIn(
+                    report.verdict, {Verdict.INCONCLUSIVE, Verdict.INCOMPLETE}
+                )
+                self.assertNotEqual(report.verdict.exit_code, 0)
+                self.assertNotIn("VERDICT: PASS", report.render())
 
 
 class VerdictPrecedenceTests(unittest.TestCase):

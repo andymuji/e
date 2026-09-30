@@ -13,11 +13,13 @@ import unittest
 
 try:
     from geometry_msgs.msg import Twist
+    from nav_msgs.msg import OccupancyGrid
     from rclpy.serialization import serialize_message
     from robot_telemetry.bag import read_publishers, read_records
     import rosbag2_py
     from sensor_msgs.msg import LaserScan
     from std_msgs.msg import Bool, String
+    from tf2_msgs.msg import TFMessage
 
     ROS_AVAILABLE = True
 except ImportError:
@@ -138,6 +140,54 @@ class BagAdapterTests(unittest.TestCase):
     def test_a_corrupt_topic_graph_is_treated_as_missing(self):
         (self.bag / "publishers.json").write_text("{not json")
         self.assertIsNone(read_publishers(self.bag))
+
+
+@unittest.skipUnless(ROS_AVAILABLE, "requires a sourced ROS 2 installation")
+class CarRunTests(unittest.TestCase):
+    """The RC car's mapping run: lidar, tf and Cartographer's map, no gate."""
+
+    def test_a_car_recording_reads_back_and_is_not_a_pass(self):
+        from robot_telemetry.report import Verdict, build_report
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bag = Path(temporary) / "car-mapping"
+            writer = rosbag2_py.SequentialWriter()
+            writer.open(
+                rosbag2_py.StorageOptions(uri=str(bag)),
+                rosbag2_py.ConverterOptions("", ""),
+            )
+            types = {
+                SCAN: "sensor_msgs/msg/LaserScan",
+                "/tf": "tf2_msgs/msg/TFMessage",
+                "/tf_static": "tf2_msgs/msg/TFMessage",
+                "/map": "nav_msgs/msg/OccupancyGrid",
+            }
+            for topic, type_name in types.items():
+                writer.create_topic(
+                    rosbag2_py.TopicMetadata(
+                        id=0, name=topic, type=type_name, serialization_format="cdr"
+                    )
+                )
+            scan = LaserScan()
+            scan.range_min, scan.range_max = 0.02, 8.0
+            scan.ranges = [0.25, 1.0]
+            grid = OccupancyGrid()
+            grid.data = [0, 100, -1]
+            for when, topic, message in (
+                (1.0, "/tf_static", TFMessage()),
+                (1.1, SCAN, scan),
+                (1.1, "/tf", TFMessage()),
+                (2.0, "/map", grid),
+            ):
+                writer.write(topic, serialize_message(message), int(when * 1e9))
+            del writer
+
+            records = read_records(bag)
+
+        self.assertEqual(len(records), 4)
+        self.assertEqual(records[1].message, Scan(0.25))
+        report = build_report(records, source="car", stop_distance=0.45)
+        self.assertIn(report.verdict, {Verdict.INCONCLUSIVE, Verdict.INCOMPLETE})
 
 
 if __name__ == "__main__":
