@@ -24,6 +24,10 @@ A map of this folder, in the order worth reading them.
 one room by remote control and map it. The parts, how they connect, and the
 stages in order, each ending in something you can see working.
 
+**[wiring-checklist.md](wiring-checklist.md)** — wiring the battery, the
+emergency stop, the motor drivers and the Pico, one check per step, with the
+wheels in the air throughout.
+
 ## Evidence
 
 **[runs/](runs/README.md)** — reports from real recorded runs, committed as
