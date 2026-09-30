@@ -305,10 +305,26 @@ class RobotWebApp:
         showing as active would misreport what the robot is doing.
         """
         self.safety.engage_emergency_stop()
-        status = self.dispatcher.status()
-        if status.state == "navigating" and status.goal_id is not None:
-            self.dispatcher.cancel_goal(status.goal_id)
+        self._abandon_trip()
         return self.status()
+
+    def _abandon_trip(self) -> None:
+        """Cancel the trip in progress, if there is one.
+
+        Under the store lock, which send_goal holds from its latch check to
+        its dispatch, so a goal racing a stop is either refused or already
+        sent and cancelled here - never left waiting behind the latch to
+        drive off when it is reset. A trip that ended on its own between the
+        status read and the cancel is what a stop wants, not a failure.
+        """
+        with self._store_lock:
+            status = self.dispatcher.status()
+            if status.state != "navigating" or status.goal_id is None:
+                return
+            try:
+                self.dispatcher.cancel_goal(status.goal_id)
+            except ValueError:
+                pass
 
     def reset_emergency_stop(self) -> dict[str, Any]:
         """Release the latch. Deliberate, and never triggered by polling."""
@@ -342,10 +358,10 @@ class RobotWebApp:
 
     def send_goal(self, location_name: str) -> dict[str, Any]:
         location_name = _text_field(location_name, "location_name")
-        # Checked before the lookup, so an engaged stop is reported as the
-        # reason for refusing rather than being masked by a bad name.
-        self._refuse_motion()
         with self._store_lock:
+            # Checked before the lookup, so an engaged stop is reported as the
+            # reason for refusing rather than being masked by a bad name.
+            self._refuse_motion()
             goal = self.location_store.get_goal(location_name)
             goal_id = self.dispatcher.send_goal(goal)
         return {"goal_id": goal_id, "location_name": goal.location_name}
@@ -387,8 +403,7 @@ class RobotWebApp:
             # A halt is a stop the recogniser mangled - "sto", "hal". It drops
             # the trip exactly as a stop does; what it does not do is ask for
             # the latch, which is the gateway's decision, not this console's.
-            if status.state == "navigating" and status.goal_id is not None:
-                self.dispatcher.cancel_goal(status.goal_id)
+            self._abandon_trip()
         elif outcome.action == "go_to":
             refusal = self._motion_refusal()
             if refusal is not None:

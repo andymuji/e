@@ -177,6 +177,42 @@ class RobotWebAppTests(unittest.TestCase):
 
         self.assertEqual(status["goal"]["state"], "cancelled")
 
+    def test_a_stop_pressed_as_the_trip_ends_still_answers(self) -> None:
+        # The trip can finish between the stop reading it as active and
+        # cancelling it. The latch is down either way; answering the STOP
+        # button with an error would tell the operator it had not worked.
+        self.app.send_goal("kitchen")
+
+        def already_over(goal_id: str) -> None:
+            raise ValueError("no matching active goal")
+
+        self.dispatcher.cancel_goal = already_over
+
+        status = self.app.engage_emergency_stop()
+        self.assertTrue(status["safety"]["emergency_stop"])
+        self.assertEqual(self.app.handle_voice_command("stop")["action"], "stop")
+
+    def test_a_goal_racing_the_stop_is_not_left_behind_the_latch(self) -> None:
+        # The goal passes the latch check, and the stop lands before it is
+        # dispatched. Left alone, that trip sits behind the latch and drives
+        # off the moment someone resets it.
+        stopper = []
+        check = self.safety.motion_refusal
+
+        def refusal_as_the_stop_is_pressed():
+            answer = check()
+            stopper.append(threading.Thread(target=self.app.engage_emergency_stop))
+            stopper[0].start()
+            stopper[0].join(timeout=0.2)
+            return answer
+
+        self.safety.motion_refusal = refusal_as_the_stop_is_pressed
+
+        self.app.send_goal("kitchen")
+        stopper[0].join(timeout=5)
+
+        self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
+
     def test_no_goal_can_be_sent_while_stopped(self) -> None:
         self.app.engage_emergency_stop()
 
