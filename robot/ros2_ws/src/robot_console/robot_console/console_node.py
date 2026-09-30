@@ -47,7 +47,11 @@ from robot_console.map_provider import (
     pose_from_transform,
     snapshot_from_message,
 )
-from robot_console.safety_adapter import RosSafetyAdapter
+from robot_console.safety_adapter import (
+    EMERGENCY_STOP_REASON,
+    RosSafetyAdapter,
+    parse_state,
+)
 from robot_console.web_console import WEB_ROOT, RobotWebApp, make_handler
 
 # Matches robot_safety.safety_node.STATE_QOS. Imported rather than restated
@@ -180,6 +184,11 @@ class ConsoleNode(Node):
 
     def _on_safety_state(self, message: String) -> None:
         self.safety.on_state(message.data)
+        if parse_state(message.data)[1] == EMERGENCY_STOP_REASON:
+            # Latched from anywhere - a spoken stop, another console - this
+            # console's trip ends too. Left to Nav2, it waits behind the latch
+            # and drives off the moment someone resets the stop.
+            self.app.abandon_trip()
 
     def _on_gate_heartbeat(self, _message: Twist) -> None:
         self.safety.on_heartbeat()

@@ -7,6 +7,7 @@ carefully as the checks themselves.
 
 import unittest
 
+from robot_telemetry.invariants import Finding, Outcome
 from robot_telemetry.records import (
     CMD_VEL,
     EMERGENCY_STOP,
@@ -14,12 +15,18 @@ from robot_telemetry.records import (
     SAFETY_STATE,
     SCAN,
     Flag,
+    Opaque,
     Record,
     SafetyStatus,
     Scan,
     Velocity,
 )
-from robot_telemetry.report import Verdict, build_report
+from robot_telemetry.report import (
+    SafetyReport,
+    Verdict,
+    _verdict_meaning,
+    build_report,
+)
 
 GATE = "/safety_controller"
 GOOD_GRAPH = {CMD_VEL: [GATE]}
@@ -27,6 +34,17 @@ GOOD_GRAPH = {CMD_VEL: [GATE]}
 
 def run(*entries: tuple[float, str, object]) -> list[Record]:
     return [Record(when, topic, message) for when, topic, message in entries]
+
+
+def finding(outcome: Outcome) -> Finding:
+    return Finding("a check", outcome, "what happened", "what it means")
+
+
+def report_of(*outcomes: Outcome) -> SafetyReport:
+    """A report standing on nothing but the outcomes it was handed."""
+    return SafetyReport(
+        source="test", findings=tuple(finding(outcome) for outcome in outcomes)
+    )
 
 
 def report_for(records, publishers=GOOD_GRAPH):
@@ -87,16 +105,79 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(report.verdict.exit_code, 2)
         self.assertIn("cannot answer", report.render())
 
-    def test_a_run_nobody_watched_the_graph_for_still_passes_what_it_can(self):
-        """A missing topic graph must not hide a real violation either way.
+    def test_a_run_nobody_watched_the_graph_for_is_incomplete_not_a_pass(self):
+        """A missing topic graph leaves one question unanswered.
 
-        Recording without the probe leaves one question unanswerable; the
-        other three were still answered, so the verdict is a qualified pass
-        with the gap stated, not a blanket INCONCLUSIVE.
+        The other three were answered and none of them failed, so this is
+        neither a pass nor a blanket INCONCLUSIVE: it is a run that did not
+        put every check to the test, and it must not go green.
         """
         report = report_for(good_run(), publishers=None)
-        self.assertIs(report.verdict, Verdict.PASS)
+        self.assertIs(report.verdict, Verdict.INCOMPLETE)
+        self.assertNotEqual(report.verdict.exit_code, 0)
         self.assertIn("topic graph was not", report.render())
+
+    def test_a_run_with_no_safety_gate_is_never_a_pass(self):
+        """The RC car in docs/poc-plan.md: lidar, tf and a map, and no gate.
+
+        Its remote drives the motors directly, so there is no /cmd_vel,
+        /safety_state or stop topic for any check to read. The plan promises
+        this report will not be green; this is what holds it to that.
+        """
+        records = run(
+            (0.0, "/tf_static", Opaque("TFMessage")),
+            *((0.1 * tick, SCAN, Scan(0.30)) for tick in range(1, 50)),
+            *((0.1 * tick, "/tf", Opaque("TFMessage")) for tick in range(1, 50)),
+            (1.0, "/map", Opaque("OccupancyGrid")),
+            (2.0, "/map", Opaque("OccupancyGrid")),
+        )
+        # What graph_probe writes on the car: the lidar node, and nobody else.
+        car_graph = {
+            topic: [] for topic in (CMD_VEL, SAFETY_STATE, EMERGENCY_STOP)
+        } | {SCAN: ["/ldlidar"]}
+        for publishers in (car_graph, None):
+            with self.subTest(publishers=publishers):
+                report = report_for(records, publishers)
+                self.assertIn(
+                    report.verdict, {Verdict.INCONCLUSIVE, Verdict.INCOMPLETE}
+                )
+                self.assertNotEqual(report.verdict.exit_code, 0)
+                self.assertNotIn("VERDICT: PASS", report.render())
+
+
+class VerdictPrecedenceTests(unittest.TestCase):
+    """What the headline says, given nothing but the outcomes of the checks."""
+
+    def test_an_unexercised_check_alongside_a_pass_is_incomplete(self):
+        report = report_of(Outcome.PASSED, Outcome.NOT_EXERCISED)
+        self.assertIs(report.verdict, Verdict.INCOMPLETE)
+        self.assertNotEqual(report.verdict.exit_code, 0)
+
+    def test_a_failure_still_wins_over_an_unexercised_check(self):
+        report = report_of(Outcome.FAILED, Outcome.NOT_EXERCISED)
+        self.assertIs(report.verdict, Verdict.FAIL)
+
+    def test_nothing_exercised_at_all_is_inconclusive_not_incomplete(self):
+        report = report_of(Outcome.NOT_EXERCISED, Outcome.NOT_EXERCISED)
+        self.assertIs(report.verdict, Verdict.INCONCLUSIVE)
+
+    def test_everything_exercised_and_nothing_broken_is_a_pass(self):
+        report = report_of(Outcome.PASSED, Outcome.PASSED)
+        self.assertIs(report.verdict, Verdict.PASS)
+        self.assertEqual(report.verdict.exit_code, 0)
+
+    def test_only_a_pass_exits_zero_and_no_two_verdicts_share_a_code(self):
+        codes = [verdict.exit_code for verdict in Verdict]
+        self.assertEqual(len(set(codes)), len(codes))
+        for verdict in Verdict:
+            with self.subTest(verdict=verdict):
+                zero = verdict.exit_code == 0
+                self.assertEqual(zero, verdict is Verdict.PASS)
+
+    def test_every_verdict_is_explained_in_plain_english(self):
+        for verdict in Verdict:
+            with self.subTest(verdict=verdict):
+                self.assertTrue(_verdict_meaning(verdict).strip())
 
 
 class RenderingTests(unittest.TestCase):
@@ -106,6 +187,12 @@ class RenderingTests(unittest.TestCase):
         self.assertIn("What happened:", rendered)
         self.assertIn("What it means:", rendered)
         self.assertIn("VERDICT: PASS", rendered)
+
+    def test_the_headline_carries_the_new_verdict_too(self):
+        """The headline is what a reviewer reads, so it must say this."""
+        rendered = report_for(good_run(), publishers=None).render()
+        self.assertIn("VERDICT: INCOMPLETE", rendered)
+        self.assertIn("never put every check to the test", rendered)
 
     def test_the_report_refuses_to_stand_in_for_the_physical_test(self):
         self.assertIn(
@@ -131,7 +218,9 @@ class RenderingTests(unittest.TestCase):
             (0.15, CMD_VEL, Velocity()),
         )
         report = report_for(records)
-        self.assertIs(report.verdict, Verdict.PASS)
+        # Nobody touched the emergency stop in this run, so the latch check
+        # was never put to the test and the run is not a pass.
+        self.assertIs(report.verdict, Verdict.INCOMPLETE)
         self.assertIn("ends while the gate was holding the robot stopped", report.render())
         self.assertIn("cannot vouch for what happened next", report.render())
 

@@ -81,12 +81,24 @@ issue, next to the hand-written notes required above.
 - Whether the latched emergency stop ever released without an explicit
   operator reset on `emergency_stop_reset`.
 
-The command exits `0` when the run broke none of those rules, `1` when it
-broke one, `2` when the recording cannot answer the questions at all, and `3`
-when the recording cannot be read. A check the run never put to the test is
-reported as `NOT EXERCISED`, which is deliberately not a pass: a recording in
-which nobody pressed the emergency stop proves nothing about the emergency
-stop.
+A check the run never put to the test is reported as `NOT EXERCISED`, which is
+deliberately not a pass: a recording in which nobody pressed the emergency
+stop proves nothing about the emergency stop. The headline verdict and the
+exit code both say so, so neither a reviewer reading the first line nor a CI
+job reading the exit code can miss it:
+
+| Exit | Verdict | Meaning |
+|---|---|---|
+| `0` | `PASS` | Every check was exercised, and the run broke none of the rules |
+| `1` | `FAIL` | The run broke a safety rule |
+| `2` | `INCONCLUSIVE` | The recording cannot answer any of the questions |
+| `4` | `INCOMPLETE` | Nothing failed, but the run left at least one check unexercised |
+| `3` | *(none)* | The recording could not be read at all |
+
+Only `0` is success, and only a run that put every check to the test can reach
+it. `INCOMPLETE` was added after a recorded run in `docs/runs/` was found to
+be attachable to a pull request under a green headline with the emergency-stop
+check never exercised.
 
 If you record without `record.launch.py` - with a bare `ros2 bag record` - the
 question of who was publishing `/cmd_vel` cannot be answered, because a bag
@@ -103,8 +115,10 @@ of the seven steps.
   hardware, and a report cannot observe a wire.
 - It cannot say the robot would behave on the next run, at a different speed,
   with a payload, or on a different floor.
-- `NOT EXERCISED` is not a pass, and a `PASS` verdict alongside several
-  `NOT EXERCISED` checks means most of the questions went unasked.
+- `NOT EXERCISED` is not a pass. A run that leaves any check unexercised can
+  no longer reach `PASS` at all - it reports `INCOMPLETE` - so a green report
+  now means every question was actually asked. It still does not mean the
+  answer will be the same on the next run.
 
 `robot_telemetry` only listens. It contains no publisher of any kind: not a
 velocity, and above all not an `emergency_stop_reset`, which is an operator

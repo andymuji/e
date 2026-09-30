@@ -2,7 +2,7 @@
 #
 # stop_distance and caution_distance are DERIVED, not chosen. They come from
 # base_dynamics.yaml via robot_safety.distances.derive_safety_distances, and
-# BringupSafetyDistanceTests fails if they drift apart. To change them, change
+# SafetyDistanceDerivationTests fails if they drift apart. To change them, change
 # base_dynamics.yaml and update the two values below to match.
 #
 # They are still placeholders, because base_dynamics.yaml is still assumptions

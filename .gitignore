@@ -2,6 +2,9 @@ __pycache__/
 *.py[cod]
 .venv/
 
+# Local lint cache.
+.ruff_cache/
+
 # colcon build artifacts
 build/
 install/

@@ -12,7 +12,10 @@ setup(
         ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
-        ("share/" + package_name + "/config", glob("config/*.yaml")),
+        (
+            "share/" + package_name + "/config",
+            glob("config/*.yaml") + glob("config/*.lua"),
+        ),
         ("share/" + package_name + "/worlds", glob("worlds/*.sdf")),
         # navigation.launch.py defaults to maps/test_room.yaml in the share
         # directory, so the map has to be installed as well as committed.
@@ -23,6 +26,7 @@ setup(
     entry_points={
         "console_scripts": [
             "world_to_map = robot_bringup.world_to_map:main",
+            "save_map = robot_bringup.save_map:main",
         ],
     },
     maintainer="andymuji",

@@ -4,8 +4,9 @@
 
 Exit status is the point. A recording attached to a pull request should be
 pass/fail evidence rather than a claim, so this exits 0 only when the run broke
-none of the checked rules, 1 when it broke one, and 2 when the recording cannot
-answer the question at all.
+none of the checked rules and put every one of them to the test, 1 when it
+broke one, 2 when the recording cannot answer the questions at all, and 4 when
+it answered some and left others untouched.
 """
 
 import argparse

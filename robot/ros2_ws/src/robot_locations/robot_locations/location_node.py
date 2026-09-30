@@ -15,6 +15,13 @@ a named place is always somewhere the robot has actually been driven to and
 an operator has approved by naming it. A pose older than `pose_timeout` is
 refused rather than saved against the name the operator just spoke.
 
+Where the robot is comes from the transform tree (map -> base_footprint), not
+from amcl_pose. AMCL publishes that topic only after the robot has moved past
+update_min_d/update_min_a, so a robot standing where the operator stopped it
+publishes none (see safety_navigation.yaml: one in twenty seconds), and every
+save of the place it is standing in was refused as stale. The transform is
+refreshed continuously and is current to the robot's odometry.
+
 PERSISTENCE: the store file is the `locations_file` parameter, defaulting to
 a per-machine runtime path outside the source tree (see `default_store_path`).
 It is deliberately *not* web_ui/locations.json. That file is a committed demo
@@ -31,12 +38,14 @@ import math
 import os
 from pathlib import Path
 
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped
 import rclpy
 from rclpy.node import Node
+from rclpy.time import Time
 from robot_core import Pose2D
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from tf2_ros import Buffer, TransformException, TransformListener
 
 from robot_locations.location_store import LocationStore
 
@@ -65,6 +74,7 @@ class LocationNode(Node):
 
         self.declare_parameter("locations_file", "")
         self.declare_parameter("goal_frame", "map")
+        self.declare_parameter("base_frame", "base_footprint")
         # A negative timeout means the check is off, matching the sentinel the
         # safety parameters use: ROS parameters have no null, and 0.0 is a
         # meaningful (impossible to satisfy) value.
@@ -72,6 +82,7 @@ class LocationNode(Node):
 
         locations_file = str(self.get_parameter("locations_file").value)
         self._goal_frame = str(self.get_parameter("goal_frame").value)
+        self._base_frame = str(self.get_parameter("base_frame").value)
         self._pose_timeout = float(self.get_parameter("pose_timeout").value)
 
         self._store_path = (
@@ -79,16 +90,13 @@ class LocationNode(Node):
         )
         self._store = LocationStore(self._store_path)
 
-        self._current_pose = None
-        self._last_pose_time = None
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
 
         self._goal_publisher = self.create_publisher(PoseStamped, "goal_pose", 10)
         self._status_publisher = self.create_publisher(String, "location_status", 10)
         self.create_subscription(String, "save_location", self._on_save, 10)
         self.create_subscription(String, "recall_location", self._on_recall, 10)
-        self.create_subscription(
-            PoseWithCovarianceStamped, "amcl_pose", self._on_pose, 10
-        )
         self.create_service(Trigger, "~/list_locations", self._on_list_locations)
 
         self.get_logger().info(
@@ -100,18 +108,6 @@ class LocationNode(Node):
         """Seconds from the node clock, so use_sim_time governs the pose age."""
         return self.get_clock().now().nanoseconds * 1e-9
 
-    def _on_pose(self, message: PoseWithCovarianceStamped) -> None:
-        pose = message.pose.pose
-        orientation = pose.orientation
-        self._current_pose = Pose2D(
-            pose.position.x,
-            pose.position.y,
-            yaw_from_quaternion(
-                orientation.x, orientation.y, orientation.z, orientation.w
-            ),
-        )
-        self._last_pose_time = self._now()
-
     def _report(self, message: str) -> None:
         status = String()
         status.data = message
@@ -120,15 +116,29 @@ class LocationNode(Node):
 
     def _pose_to_save(self) -> Pose2D | None:
         """The current pose, or None when it is missing or too old to trust."""
-        if self._current_pose is None or self._last_pose_time is None:
+        try:
+            # Time() asks for the latest transform the whole chain agrees on,
+            # so a localizer that has stopped publishing ages it out.
+            transform = self._tf_buffer.lookup_transform(
+                self._goal_frame, self._base_frame, Time()
+            )
+        except TransformException:
             return None
         if self._pose_timeout >= 0.0:
-            age = self._now() - self._last_pose_time
-            # A clock that jumped backwards gives a negative age, which is a
-            # pose of unknown vintage rather than a very fresh one.
-            if not 0.0 <= age <= self._pose_timeout:
+            age = self._now() - Time.from_msg(transform.header.stamp).nanoseconds * 1e-9
+            # The age is taken from the transform's stamp, which can run a
+            # little ahead of this node's clock (under sim time the clock
+            # topic and tf are not ordered). A stamp far ahead is from before
+            # a clock reset, which is a pose of unknown vintage, not a fresh one.
+            if abs(age) > self._pose_timeout:
                 return None
-        return self._current_pose
+        translation = transform.transform.translation
+        rotation = transform.transform.rotation
+        return Pose2D(
+            translation.x,
+            translation.y,
+            yaw_from_quaternion(rotation.x, rotation.y, rotation.z, rotation.w),
+        )
 
     def _on_save(self, message: String) -> None:
         pose = self._pose_to_save()

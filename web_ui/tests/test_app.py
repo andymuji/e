@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
+import re
 import tempfile
 import threading
 import unittest
@@ -176,6 +177,42 @@ class RobotWebAppTests(unittest.TestCase):
         status = self.app.engage_emergency_stop()
 
         self.assertEqual(status["goal"]["state"], "cancelled")
+
+    def test_a_stop_pressed_as_the_trip_ends_still_answers(self) -> None:
+        # The trip can finish between the stop reading it as active and
+        # cancelling it. The latch is down either way; answering the STOP
+        # button with an error would tell the operator it had not worked.
+        self.app.send_goal("kitchen")
+
+        def already_over(goal_id: str) -> None:
+            raise ValueError("no matching active goal")
+
+        self.dispatcher.cancel_goal = already_over
+
+        status = self.app.engage_emergency_stop()
+        self.assertTrue(status["safety"]["emergency_stop"])
+        self.assertEqual(self.app.handle_voice_command("stop")["action"], "stop")
+
+    def test_a_goal_racing_the_stop_is_not_left_behind_the_latch(self) -> None:
+        # The goal passes the latch check, and the stop lands before it is
+        # dispatched. Left alone, that trip sits behind the latch and drives
+        # off the moment someone resets it.
+        stopper = []
+        check = self.safety.motion_refusal
+
+        def refusal_as_the_stop_is_pressed():
+            answer = check()
+            stopper.append(threading.Thread(target=self.app.engage_emergency_stop))
+            stopper[0].start()
+            stopper[0].join(timeout=0.2)
+            return answer
+
+        self.safety.motion_refusal = refusal_as_the_stop_is_pressed
+
+        self.app.send_goal("kitchen")
+        stopper[0].join(timeout=5)
+
+        self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
 
     def test_no_goal_can_be_sent_while_stopped(self) -> None:
         self.app.engage_emergency_stop()
@@ -470,6 +507,65 @@ class RobotHttpApiTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("emergency stop", payload["error"])
 
+    def test_another_site_cannot_release_the_stop_or_send_the_robot(self) -> None:
+        # What a page elsewhere in the operator's browser can send without
+        # the console's permission: a form post or a no-cors fetch, neither
+        # of which can be JSON, and a foreign Origin on anything it sends.
+        self.call("POST", "/api/emergency_stop")
+        cross_site = [
+            {"Content-Type": "text/plain"},
+            {"Content-Type": "application/x-www-form-urlencoded"},
+            {"Origin": "http://evil.example"},
+            {"Origin": "null"},
+        ]
+
+        for headers in cross_site:
+            with self.subTest(headers=headers):
+                status, _ = self.call("POST", "/api/emergency_stop/reset", "", headers)
+                self.assertEqual(status, 403)
+                status, _ = self.call(
+                    "POST", "/api/goals", '{"location_name":"kitchen"}', headers
+                )
+                self.assertEqual(status, 403)
+
+        _, body = self.call("GET", "/api/status")
+        self.assertTrue(body["safety"]["emergency_stop"])
+        self.assertEqual(body["goal"]["state"], "ready")
+
+    def test_the_stop_is_engaged_whoever_asks(self) -> None:
+        status, body = self.call(
+            "POST", "/api/emergency_stop", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["safety"]["emergency_stop"])
+
+    def test_a_trip_is_cancelled_whoever_asks(self) -> None:
+        # Cancelling only ever ends a trip, so like the stop it must never
+        # fail on a header.
+        self.call("POST", "/api/goals", '{"location_name":"kitchen"}')
+
+        status, _ = self.call(
+            "POST", "/api/goals/cancel", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        _, body = self.call("GET", "/api/status")
+        self.assertEqual(body["goal"]["state"], "cancelled")
+
+    def test_the_consoles_own_page_can_still_reset(self) -> None:
+        self.call("POST", "/api/emergency_stop")
+
+        status, body = self.call(
+            "POST", "/api/emergency_stop/reset", "",
+            {"Origin": f"http://127.0.0.1:{self.port}"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(body["safety"]["emergency_stop"])
+
     def test_unknown_routes_answer_json(self) -> None:
         for method, path in (("GET", "/api/nope"), ("POST", "/api/nope")):
             with self.subTest(method=method, path=path):
@@ -601,6 +697,21 @@ class PluggedInAdapterTests(unittest.TestCase):
         self.assertTrue(app.map_data()["walls"])
 
 
+def contrast(foreground: str, background: str) -> float:
+    """WCAG 2 contrast ratio between two #rrggbb colours."""
+
+    def luminance(colour: str) -> float:
+        channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        r, g, b = (
+            c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+            for c in channels
+        )
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
 class ConsoleMarkupTests(unittest.TestCase):
     """What the console asserts before it has heard from the robot.
 
@@ -612,6 +723,7 @@ class ConsoleMarkupTests(unittest.TestCase):
     def setUp(self) -> None:
         self.markup = (WEB_ROOT / "index.html").read_text()
         self.script = (WEB_ROOT / "app.js").read_text()
+        self.styles = (WEB_ROOT / "styles.css").read_text()
 
     def test_the_shipped_latch_readout_does_not_claim_released(self) -> None:
         latch = self.markup.split('id="latch-value"')[1].split("</dd>")[0]
@@ -635,6 +747,48 @@ class ConsoleMarkupTests(unittest.TestCase):
         unknown_branch = self.script.split("if (engaged === null)")[1].split("return;")[0]
 
         self.assertIn("estopReset.hidden = true", unknown_branch)
+
+    def test_the_page_sends_json_wherever_the_server_requires_it(self) -> None:
+        # The server refuses anything else as cross-site, so a call the page
+        # makes without it is a reset or cancel button that silently 403s.
+        for path in ("/api/goals/cancel", "/api/emergency_stop/reset"):
+            with self.subTest(path=path):
+                call = self.script.split(f'request("{path}"')[1].split("})")[0]
+                self.assertIn('"Content-Type": "application/json"', call)
+
+    def test_the_maps_places_are_not_hidden_inside_an_image(self) -> None:
+        # role="img" makes everything inside it presentational, so a screen
+        # reader never found the "Go to" buttons drawn on the map.
+        floor_map = self.markup.split('<svg id="floor-map"')[1].split(">")[0]
+
+        self.assertNotIn('role="img"', floor_map)
+
+    def test_a_redraw_gives_the_focused_place_its_focus_back(self) -> None:
+        render = self.script.split("function renderMap")[1].split("\n}\n")[0]
+
+        self.assertIn("focusedName", render.split("replaceChildren")[0])
+        self.assertIn("group.focus()", render)
+
+    def test_a_press_on_a_place_is_not_a_new_label(self) -> None:
+        press = self.script.split('addEventListener("pointerdown"')[1].split("});")[0]
+
+        self.assertIn('closest(".map-location")) return', press)
+
+    def test_a_failed_map_read_stops_drawing_the_robot(self) -> None:
+        poll = self.script.split("setInterval(() => {\n  loadMap()")[1].split("MAP_POLL_MS")[0]
+
+        self.assertIn("robot: null", poll)
+
+    def test_text_and_fields_meet_the_contrast_minimums(self) -> None:
+        # WCAG AA: 4.5:1 for text, 3:1 for the edge that shows a field is one.
+        colours = dict(re.findall(r"--([a-z-]+): (#[0-9a-f]{6});", self.styles))
+
+        for background in ("panel", "paper", "teal-soft"):
+            with self.subTest(background=background):
+                ratio = contrast(colours["muted"], colours[background])
+                self.assertGreaterEqual(ratio, 4.5)
+        self.assertGreaterEqual(contrast(colours["field"], colours["panel"]), 3.0)
+        self.assertEqual(self.styles.count("border: 1px solid var(--field)"), 3)
 
     def test_a_missing_latch_field_is_treated_as_unknown(self) -> None:
         # Not as released: a status payload without the field tells the

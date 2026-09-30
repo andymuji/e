@@ -1,0 +1,65 @@
+# Parameters for robot_base's driver on the mecanum proof-of-concept base.
+#
+# Used by base_mapping.launch.py. Every size and speed below is a PLACEHOLDER
+# until measured on the real chassis (see robot/firmware/pico_base/README.md).
+# None of it feeds base_dynamics.yaml or the URDF: those describe the real
+# robot, and the safety gate's distances are derived from them.
+base_driver:
+  ros__parameters:
+    use_sim_time: false
+
+    # The Pico's USB serial port. /dev/serial/by-id/usb-MicroPython_...
+    # is steadier than ttyACM0 if other USB serial devices come and go.
+    serial_port: /dev/ttyACM0
+
+    # One command line to the Pico per cycle. The Pico stops the motors
+    # after 0.25 s without one; 20 Hz gives it five chances.
+    control_rate_hz: 20.0
+    # /cmd_vel older than this is treated as none. The gate publishes every
+    # cycle, so silence means the gate has died. Must not exceed the gate's
+    # own command_timeout; the bringup tests check.
+    command_timeout: 0.25
+    # The only node allowed to publish /cmd_vel.
+    gate_node: safety_controller
+
+    # Wheel geometry, m. PLACEHOLDERS: measure.
+    wheel_radius: 0.04
+    half_wheelbase: 0.10   # centre of the base to the front axle
+    half_track: 0.10       # centre of the base to the middle of a wheel, sideways
+
+    # Encoder counts per wheel turn, as the Pico counts them: 2 x pulses per
+    # motor turn x gear ratio. PLACEHOLDER: measure.
+    encoder_counts_per_rev: 660.0
+
+    # Wheel speed at full power with the battery full, rad/s, measured with
+    # the wheels off the floor. PLACEHOLDER, and deliberately guessed HIGH:
+    # if the real wheels are slower than this, the base goes slower than
+    # asked, never faster.
+    max_wheel_speed: 60.0
+
+    # The fastest the driver will ever ask for, whatever /cmd_vel says.
+    # Must not exceed max_speed in base_dynamics.yaml (0.5 m/s), which the
+    # gate's stop distance assumes; the bringup tests check. 0.3 m/s is also
+    # the most car_cartographer.lua is tuned for.
+    max_linear_speed: 0.3
+    max_angular_speed: 1.0
+
+    # Drive it like a tank for the proof of concept (docs/poc-plan.md):
+    # sideways requests are dropped. Mecanum sideways motion slips the most
+    # and is the hardest to judge from across a room.
+    allow_sideways: false
+
+    # Seconds for a wheel to go from rest to full power. Spreads out the
+    # four motors' starting current: the battery's BMS allows 10 A
+    # continuous (15 A for 10 s) and the main fuse is 15 A. This is NOT a
+    # current limit - nothing on the base measures current - only a way to
+    # avoid asking for all four starting surges at once. Slowing down and
+    # stopping are never ramped.
+    ramp_time: 0.5
+
+    odom_frame: odom
+    base_frame: base_link
+    # Off: Cartographer publishes odom -> base_link on the car
+    # (provide_odom_frame in car_cartographer.lua). Turning this on as well
+    # would give base_link two parents. test_base_mapping_launch.py checks.
+    publish_tf: false

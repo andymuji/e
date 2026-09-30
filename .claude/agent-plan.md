@@ -240,3 +240,268 @@ Owns: new `robot_bringup/config/collision_monitor.yaml`, new
 
 Same as previous rounds: one merge per track. `README.md`, `AGENTS.md`, this
 file and `.claude/**` belong to neither track and are edited at merge.
+
+## Track A progress: 2026-09-21, third live bring-up
+
+`simulation.launch.py safety:=false` was attempted and **refused again** by the
+permission classifier ("Safety Bypass Flag"). Track A items 1, 2, 4 and 5 stay
+blocked behind it; no attempt was made to reconstruct the same topology by
+hand, because that is the denial's intent rather than its letter.
+
+What was done instead, with the simulator in its *safest* configuration
+(gate on, headless, `ROS_DOMAIN_ID=42`):
+
+- `colcon build` clean, 9 packages, 16 s.
+- Third live bring-up. `/cmd_vel` had **one** publisher, `safety_controller`,
+  and one subscriber, the Gazebo bridge. Third independent confirmation.
+- **New, and not previously checked live: `/emergency_stop_reset` has zero
+  publishers.** Nothing in a running graph can release the latch. That is two
+  written safety rules confirmed against a live system rather than by reading
+  code - `robot_voice` cannot reset, and `robot_telemetry` publishes nothing.
+- The recorder ran against a live graph for the first time (the plan said it
+  never had). It subscribed to `/tf`, `/tf_static`, `/scan`, `/cmd_vel` and
+  `/safety_state` and produced two real recordings, in `/root/robot_runs/`.
+- Voice to latch, live: `say "stop"` moved the gate from "no motion command
+  received" to "emergency stop active", and the latch **held** through a
+  subsequent `say "go to the kitchen"`. The destination did not release it.
+- Both recordings analysed. The second reports four checks PASSED including
+  the latch, and honestly refuses to call the 55 ms zero-command a stopping
+  time because the robot was already stationary.
+- `check.sh: PASSED`, ten suites, `robot_safety` a plain `OK`.
+
+### Defect for Track B: a green verdict over an unexercised check
+
+`robot_telemetry/report.py` lines 64-72. `Report.verdict` returns
+`INCONCLUSIVE` only when **every** finding is `NOT_EXERCISED`. One passing
+check is enough to make the headline `VERDICT: PASS` and the exit code `0`.
+
+The first recording proves it: the emergency stop was never touched, the latch
+check reported `NOT EXERCISED`, and the report still opened with
+`VERDICT: PASS` and exited `0`. `docs/safety-test-procedure.md` says a check
+the run never put to the test "is deliberately not a pass" - the body of the
+report honours that, the two things a reviewer or a CI job actually reads do
+not. A recording where nobody pressed stop should not be attachable to a pull
+request under a green headline.
+
+Suggested shape: any `NOT_EXERCISED` finding makes the verdict
+`INCOMPLETE` - distinct from both `PASS` and `INCONCLUSIVE` - with a non-zero
+exit. That is Track B's call; it owns the file.
+
+### Smaller thing, working as designed
+
+A recorder stopped with `SIGINT` from a non-terminal left no `metadata.yaml`.
+`analyse_run` detected it, exited `3`, and printed the exact `ros2 bag reindex`
+command to fix it, which worked. Worth keeping; it behaved better than the
+thing it was reporting on.
+
+## Track A, continued: SLAM and Nav2 observed live
+
+Two more things that need no `safety:=false`, because neither arrangement puts
+two gates on `/cmd_vel`.
+
+**SLAM against the simulator.** `slam.launch.py` launches only `slam_toolbox`,
+which publishes no velocity, so it runs safely beside the simulation gate. The
+mapping pipeline ran end to end for the first time: the lidar registered, and
+`/map` appeared and grew from live scans rather than from the world file.
+
+The map is **not** a substitute for the driven one. Its bounding box came out
+6.0 x 4.95 m, close enough to the 6x5 m room to be misleading, but only
+**11.5% of its cells were known** (1269 free, 102 occupied, 10509 unknown).
+The lidar cannot see the room from the start pose - the table and cabinet
+occlude it. A usable map still needs the robot driven around, so Track A item
+2 stays blocked with items 1, 4 and 5. Worth recording because the bounding
+box alone would have suggested otherwise.
+
+**Nav2 standalone, no simulator.** Run alone, `navigation.launch.py` brings
+the only gate in the graph, so this needs no flag either. Fifteen nodes came
+up and the committed map loaded (134 x 114 at 0.05 m).
+
+Three claims checked against a running Nav2 stack:
+
+- `/cmd_vel`: **one** publisher, `safety_controller`, with the full stack up
+  including `behavior_server`.
+- `/cmd_vel_requested`: **four** publishers - `controller_server` once and
+  `behavior_server` three times, one per recovery behaviour. The remap holds
+  for every velocity-capable Nav2 node, including the ones that run when
+  something has already gone wrong.
+- **The gate is not lifecycle-managed, verified live for the first time.**
+  `ros2 lifecycle nodes` lists nine managed nodes; `safety_controller` has no
+  lifecycle interface at all, so the lifecycle manager cannot deactivate it
+  on failure. Until now this was asserted by a launch-file test
+  (`test_the_gate_is_not_under_lifecycle_control`) and never observed.
+
+That last one is the strongest result of the session: the test proved the gate
+was absent from a Python list, and this proves the running node has no
+interface to be shut down through.
+
+---
+
+# Track B completed: 2026-09-22
+
+All three Track B tasks are done, plus the analyser defect Track A found. Two
+agents worked in parallel on disjoint files; the integrator did the rest.
+
+| Task | Outcome |
+|---|---|
+| 1. Safety topology regression test | `robot_bringup/tests/test_cmd_vel_topology.py`. Globs every launch file in the workspace rather than naming them, so a launch file added in a package that does not exist yet is covered. 19 of 19 seeded mistakes were caught by a mutation harness. |
+| 2. Hazard analysis | `docs/hazard-analysis.md`. Eighteen hazards, severity-rated, each with what catches it and what does not. |
+| 3. Nav2 Collision Monitor | `config/collision_monitor.yaml`, `launch/collision_monitor.launch.py`, `tests/test_collision_monitor.py`. Zones derived from `BaseFootprint` and the gate's own distances; 6 of 6 seeded mistakes caught. |
+| 4. The green-verdict defect | Fixed. `Verdict.INCOMPLETE`, exit code 4: any `NOT_EXERCISED` finding now keeps the headline off green. |
+
+## What the hazard analysis turned up that nobody had written down
+
+**The gate stops on the nearest obstacle in every direction.** `safety_node.py`
+takes the minimum over the whole 360-degree scan with no angular filter. With
+the current numbers - 0.45 m stop distance, 0.30 m wide robot - the robot
+needs a corridor wider than 1.20 m to move at all, and an interior door is
+0.76-0.81 m. **As configured, the robot would stop dead in the doorway of the
+home it is meant to work in.**
+
+It fails closed, so it is safe. It has never been observed because nothing has
+navigated and the only simulated room is open-plan with no doorways. The
+danger is the fix: the obvious response is to shrink `stop_distance`, which is
+the number protecting against driving into a person.
+
+Recorded as H-04. **Not fixed here**, because narrowing the gate's field of
+view is a real change to the one component everything rests on and needs a
+measured robot and the user's decision. The Collision Monitor establishes the
+directional layer it would be built on, but adding it does not close H-04 on
+its own: it can only ever make the robot more cautious, and the gate behind it
+still looks everywhere.
+
+## Integration notes
+
+- The new topology test initially failed on the new Collision Monitor, and was
+  right to. The monitor names its topics with *parameters* rather than
+  remappings, so the launch file never mentions `cmd_vel` and a remap-based
+  check cannot see where its output goes. Rather than exempting the node, the
+  test now reads the parameter file too (`PARAMETER_CONFIGURED_OUTPUT`), and
+  fails if exactly one parameter file does not answer the question. Nav2's own
+  default for `cmd_vel_out_topic` is `cmd_vel`, so this is the single most
+  dangerous line in the new configuration and is now asserted from two files.
+- The `guard-derived-distances.sh` hook only matched `safety.yaml`.
+  `safety_navigation.yaml` holds the same two derived values and is the file
+  autonomous navigation actually loads, so the stricter configuration was the
+  unguarded one. Both are guarded now.
+- Four comments pointed at test classes that do not exist
+  (`BringupSafetyDistanceTests`, `BringupNavigationTopologyTests`). These are
+  the "here is the evidence for this safety claim" pointers, so a dead one is
+  worse than none. Fixed to the real names.
+
+## Still open, and still the same things
+
+- **Nothing has navigated.** Track A items 1, 2, 4 and 5 remain blocked behind
+  `simulation.launch.py safety:=false`, refused twice by the permission
+  classifier. Needs the user's decision, not an agent's.
+- **H-04 needs deciding** before the robot can leave an open-plan room.
+- The Collision Monitor has never been run: `nav2_collision_monitor` is not
+  installed in the container, and it is deliberately not wired into
+  `navigation.launch.py`, which belongs to Track A.
+
+## For whoever dispatches the next round
+
+Both agents this round independently reported that the harness instructed them
+to make file edits through `sed`, heredocs and shell scripts rather than
+Write/Edit. That is the exact bypass described under "Known gap" above: the
+repo's guard hook only sees Write/Edit. Both ignored it and said so. Tell
+future agents explicitly to use Write/Edit, and treat an agent that edited
+safety configuration through Bash as an unreviewed change.
+
+---
+
+# Single session: 2026-09-23 — the guard, the monitor, and the same blocker
+
+Four of the nine open items are closed. The four that need the robot to move
+are not, and are blocked on the same thing they were blocked on in September.
+
+## Closed
+
+**The guard hook gap is shut.** `guard-derived-distances.sh` now matches
+`Bash` as well as `Write|Edit`. The two branches are deliberately different:
+Write/Edit inspects the new content and denies only when a derived line is
+touched, while Bash cannot - a payload holds the command, not the file it
+would leave behind - so it refuses any non-read-only command naming a guarded
+file and sends the caller to Write/Edit. Blunter on purpose, and fails closed.
+
+It also has the test it never had, which is how the hole survived a whole
+round. Run against the previous hook it fails on exactly the nine Bash cases
+and passes the thirteen Write/Edit ones. `check.sh` runs it, so CI does too.
+
+**The eight stale worktree branches are gone.** All were fully merged with
+zero unique commits; deleted with `-d`, so git would have refused any that
+were not. Local only - they were never pushed. `origin/track-b` still exists
+and looks merged, but it was not on the list, so it was left alone.
+
+**The Collision Monitor is installed, wired in and has been run.** It turns
+out `nav2_collision_monitor` was already an `exec_depend` in
+`robot_bringup/package.xml` and the devcontainer's `postCreateCommand` already
+runs `rosdep install` - so reproducibility was never missing, this container
+was just stale. One `apt install` and it was there.
+
+**Wiring it was not the one-line change this file predicted.** The monitor
+listens on `cmd_vel_raw` and emits `cmd_vel_requested`; Nav2 was remapped
+straight onto `cmd_vel_requested`. Adding the node alone would have left it
+reading a topic nobody published: robot still, no layer, no error message.
+Nav2's remap had to move to `cmd_vel_raw` in the same change. It is wired
+unconditionally rather than behind a flag, because an optional layer means two
+remap variants per steering node and a node left behind skips the constraint
+silently.
+
+"Behind the gate" is therefore two hops now, and the topology tests follow the
+chain rather than naming one topic: start at what the gate listens to, add the
+input of any node whose output already reaches it, repeat. A further layer can
+be inserted later without touching the test.
+
+Three mistakes were seeded. Monitor publishing to `cmd_vel`: caught. Chain
+broken at the monitor's input: caught. **Include deleted while the import and
+the variable stayed behind: NOT caught** by the first version of either new
+test, because both matched text that survives the deletion - the exact failure
+this repo keeps warning about, committed by the agent writing the warning.
+Both now read the include action from the AST, and both catch it.
+
+## Observed live, ROS_DOMAIN_ID=42
+
+Monitor standalone: active and bonded, every parameter name accepted, both
+polygons created, StopZone published back at exactly the derived geometry
+(x -0.20..0.60, y +/-0.15, base_footprint). `/cmd_vel` **did not exist** -
+the node opens no publisher on the wheel topic.
+
+Full `navigation.launch.py`, which is also the first run of the new include:
+
+- `/cmd_vel_raw`: **4 publishers** - `controller_server` once and
+  `behavior_server` three times, one per recovery behaviour. The remap moved
+  all four together.
+- `/cmd_vel_requested`: one publisher, `collision_monitor`.
+- `/cmd_vel`: one publisher, `safety_controller`.
+- `/emergency_stop_reset`: zero publishers.
+- `ros2 lifecycle nodes` lists ten managed nodes - the monitor joined them -
+  and `safety_controller` is still not among them and has no lifecycle
+  interface at all.
+
+## Item 5, half answered without a run
+
+**The asymmetry is deliberate, and it is documented and tested.** `safety.yaml`
+has `require_localization: false` because it drives the teleop simulation,
+which has nobody localizing it - a gate demanding a pose there would simply
+refuse to move and the operator would learn to ignore it.
+`safety_navigation.yaml` has it `true` because under Nav2 the pose *is* what
+chooses where to drive. Both files say so in comments, and
+`test_autonomous_navigation_requires_localization` asserts it.
+
+What is still unanswered is the other half: the stop has never *fired*. That
+needs a run.
+
+## Still open, and still the same four things
+
+Items 1, 2, 3 and 4 - the goal-reaching run, the driven map, the recording,
+and the tuning - remain blocked on `simulation.launch.py safety:=false`,
+refused again this session by the permission classifier, on the name of the
+argument rather than its effect. That is now five refusals across four
+sessions. The user has authorised the flag explicitly and in writing, in the
+only arrangement it is valid for; what is missing is a permission rule that
+lets the tooling act on that decision, not a decision.
+
+No attempt was made to reconstruct the topology by hand. H-04 is untouched.
+
+Half of item 6 is also still open for the same reason: the monitor has never
+slowed or stopped a *moving* robot, because nothing has moved.

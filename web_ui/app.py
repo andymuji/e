@@ -305,10 +305,26 @@ class RobotWebApp:
         showing as active would misreport what the robot is doing.
         """
         self.safety.engage_emergency_stop()
-        status = self.dispatcher.status()
-        if status.state == "navigating" and status.goal_id is not None:
-            self.dispatcher.cancel_goal(status.goal_id)
+        self.abandon_trip()
         return self.status()
+
+    def abandon_trip(self) -> None:
+        """Cancel the trip in progress, if there is one.
+
+        Under the store lock, which send_goal holds from its latch check to
+        its dispatch, so a goal racing a stop is either refused or already
+        sent and cancelled here - never left waiting behind the latch to
+        drive off when it is reset. A trip that ended on its own between the
+        status read and the cancel is what a stop wants, not a failure.
+        """
+        with self._store_lock:
+            status = self.dispatcher.status()
+            if status.state != "navigating" or status.goal_id is None:
+                return
+            try:
+                self.dispatcher.cancel_goal(status.goal_id)
+            except ValueError:
+                pass
 
     def reset_emergency_stop(self) -> dict[str, Any]:
         """Release the latch. Deliberate, and never triggered by polling."""
@@ -342,10 +358,10 @@ class RobotWebApp:
 
     def send_goal(self, location_name: str) -> dict[str, Any]:
         location_name = _text_field(location_name, "location_name")
-        # Checked before the lookup, so an engaged stop is reported as the
-        # reason for refusing rather than being masked by a bad name.
-        self._refuse_motion()
         with self._store_lock:
+            # Checked before the lookup, so an engaged stop is reported as the
+            # reason for refusing rather than being masked by a bad name.
+            self._refuse_motion()
             goal = self.location_store.get_goal(location_name)
             goal_id = self.dispatcher.send_goal(goal)
         return {"goal_id": goal_id, "location_name": goal.location_name}
@@ -387,8 +403,7 @@ class RobotWebApp:
             # A halt is a stop the recogniser mangled - "sto", "hal". It drops
             # the trip exactly as a stop does; what it does not do is ask for
             # the latch, which is the gateway's decision, not this console's.
-            if status.state == "navigating" and status.goal_id is not None:
-                self.dispatcher.cancel_goal(status.goal_id)
+            self.abandon_trip()
         elif outcome.action == "go_to":
             refusal = self._motion_refusal()
             if refusal is not None:
@@ -491,10 +506,17 @@ def make_handler(app: RobotWebApp, web_root: Path):
             return _Reply(404, {"error": "not found"})
 
         def _route_post(self, path: str) -> "_Reply":
-            if path == "/api/goals/cancel":
-                return _Reply(200, app.cancel_goal())
             if path == "/api/emergency_stop":
+                # Ahead of the cross-site check on purpose: engaging is the
+                # safe direction, and a stop must never fail on a header.
                 return _Reply(200, app.engage_emergency_stop())
+            if path == "/api/goals/cancel":
+                # Also ahead of it: cancelling only ever ends a trip, so a
+                # cross-site cancel is harmless and a refused one is not.
+                return _Reply(200, app.cancel_goal())
+            refusal = self._cross_site_refusal()
+            if refusal is not None:
+                return _Reply(403, {"error": refusal})
             if path == "/api/emergency_stop/reset":
                 return _Reply(200, app.reset_emergency_stop())
             if path == "/api/goals":
@@ -520,6 +542,21 @@ def make_handler(app: RobotWebApp, web_root: Path):
                 body = self._json_object()
                 return _Reply(200, app.remove_location(self._field(body, "name")))
             return _Reply(404, {"error": "not found"})
+
+        def _cross_site_refusal(self) -> str | None:
+            """Refuse a POST that another web page could have sent.
+
+            Any site open in the operator's browser can POST to this console
+            without being able to read the answer, and a form or a no-cors
+            fetch cannot carry a JSON content type. Without this, a page
+            elsewhere could release the latched stop or send the robot off.
+            """
+            origin = self.headers.get("Origin")
+            if origin is not None and urlparse(origin).netloc != self.headers.get("Host"):
+                return "refused a request sent from another site"
+            if self.headers.get_content_type() != "application/json":
+                return "requests must be sent as application/json"
+            return None
 
         @staticmethod
         def _field(body: dict[str, Any], name: str) -> Any:
