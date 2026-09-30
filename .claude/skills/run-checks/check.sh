@@ -45,6 +45,14 @@ for d in "$SRC"/*/tests; do
 done
 SUITES+=(web_ui/tests)
 
+# Microcontroller firmware, outside the ROS workspace. Its logic modules
+# import nothing, and each suite puts its own firmware directory on the path,
+# so these run under plain CPython with no board attached.
+FIRMWARE=robot/firmware
+for d in "$FIRMWARE"/*/tests; do
+  [[ -d $d ]] && SUITES+=("$d")
+done
+
 rc=0
 what=${1:-all}
 
@@ -84,11 +92,11 @@ if [[ $what == tests || $what == all ]]; then
 fi
 
 if [[ $what == compile || $what == all ]]; then
-  python3 -m compileall -q $SRC web_ui || rc=1
+  python3 -m compileall -q $SRC web_ui $FIRMWARE || rc=1
 fi
 
 if [[ $what == lint || $what == all ]]; then
-  ruff check $SRC web_ui || rc=1
+  ruff check $SRC web_ui $FIRMWARE || rc=1
 fi
 
 # Say plainly whether everything selected passed. Without this the last line of
