@@ -4,6 +4,7 @@ from http.server import ThreadingHTTPServer
 import io
 import json
 from pathlib import Path
+import re
 import tempfile
 import threading
 import unittest
@@ -682,6 +683,21 @@ class PluggedInAdapterTests(unittest.TestCase):
         self.assertTrue(app.map_data()["walls"])
 
 
+def contrast(foreground: str, background: str) -> float:
+    """WCAG 2 contrast ratio between two #rrggbb colours."""
+
+    def luminance(colour: str) -> float:
+        channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        r, g, b = (
+            c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+            for c in channels
+        )
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
 class ConsoleMarkupTests(unittest.TestCase):
     """What the console asserts before it has heard from the robot.
 
@@ -693,6 +709,7 @@ class ConsoleMarkupTests(unittest.TestCase):
     def setUp(self) -> None:
         self.markup = (WEB_ROOT / "index.html").read_text()
         self.script = (WEB_ROOT / "app.js").read_text()
+        self.styles = (WEB_ROOT / "styles.css").read_text()
 
     def test_the_shipped_latch_readout_does_not_claim_released(self) -> None:
         latch = self.markup.split('id="latch-value"')[1].split("</dd>")[0]
@@ -724,6 +741,40 @@ class ConsoleMarkupTests(unittest.TestCase):
             with self.subTest(path=path):
                 call = self.script.split(f'request("{path}"')[1].split("})")[0]
                 self.assertIn('"Content-Type": "application/json"', call)
+
+    def test_the_maps_places_are_not_hidden_inside_an_image(self) -> None:
+        # role="img" makes everything inside it presentational, so a screen
+        # reader never found the "Go to" buttons drawn on the map.
+        floor_map = self.markup.split('<svg id="floor-map"')[1].split(">")[0]
+
+        self.assertNotIn('role="img"', floor_map)
+
+    def test_a_redraw_gives_the_focused_place_its_focus_back(self) -> None:
+        render = self.script.split("function renderMap")[1].split("\n}\n")[0]
+
+        self.assertIn("focusedName", render.split("replaceChildren")[0])
+        self.assertIn("group.focus()", render)
+
+    def test_a_press_on_a_place_is_not_a_new_label(self) -> None:
+        press = self.script.split('addEventListener("pointerdown"')[1].split("});")[0]
+
+        self.assertIn('closest(".map-location")) return', press)
+
+    def test_a_failed_map_read_stops_drawing_the_robot(self) -> None:
+        poll = self.script.split("setInterval(() => {\n  loadMap()")[1].split("MAP_POLL_MS")[0]
+
+        self.assertIn("robot: null", poll)
+
+    def test_text_and_fields_meet_the_contrast_minimums(self) -> None:
+        # WCAG AA: 4.5:1 for text, 3:1 for the edge that shows a field is one.
+        colours = dict(re.findall(r"--([a-z-]+): (#[0-9a-f]{6});", self.styles))
+
+        for background in ("panel", "paper", "teal-soft"):
+            with self.subTest(background=background):
+                ratio = contrast(colours["muted"], colours[background])
+                self.assertGreaterEqual(ratio, 4.5)
+        self.assertGreaterEqual(contrast(colours["field"], colours["panel"]), 3.0)
+        self.assertEqual(self.styles.count("border: 1px solid var(--field)"), 3)
 
     def test_a_missing_latch_field_is_treated_as_unknown(self) -> None:
         # Not as released: a status payload without the field tells the
