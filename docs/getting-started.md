@@ -258,7 +258,8 @@ This shows on your Mac exactly what you'll see while the car drives: a map
 filling in as a robot moves round a room. Here the robot and the room are
 simulated, in this Codespace, and you drive with the keyboard. Checked
 2026-09-30: the simulated room, the map builder and the viewer all start,
-and a map forms. Nobody has watched it from a Mac yet.
+and a map forms. Watched from a Mac on 2026-10-02: Foxglove connected
+through the public port and showed the map filling in as the robot drove.
 
 The map will look cleaner than the car's. The simulated robot has wheel
 sensors to help it; the car doesn't, so its map drifts a little along long
