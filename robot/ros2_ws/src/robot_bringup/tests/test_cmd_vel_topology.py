@@ -72,7 +72,13 @@ VELOCITY_SOURCES = frozenset({
     "docking_server",
     "teleop_twist_keyboard",
     "teleop_twist_joy",
+    "key_teleop",
 })
+
+# Velocity sources whose own output topic is not cmd_vel, and what it is.
+# Remapping that topic is what puts them behind the gate, so it is the one the
+# checks below look for.
+NATIVE_OUTPUT = {"key_teleop": "key_vel"}
 
 # Calls that would let a package put something on a topic, ask a service for
 # something, or send a goal - in short, act rather than watch.
@@ -667,8 +673,12 @@ class SinglePublisherOnTheWheelsTests(unittest.TestCase):
                 if configured is not None:
                     drives = configured == WHEELS
                 else:
+                    output = NATIVE_OUTPUT.get(
+                        launch.text_argument(call, "executable"), WHEELS
+                    )
                     drives = WHEELS in renamed_onto or (
                         launch.is_a_velocity_source(call)
+                        and output == WHEELS
                         and WHEELS not in renamed_from
                     )
                 if drives and not launch.is_the_gate(call):
@@ -792,10 +802,13 @@ class MotionSourcesAskRatherThanCommandTests(unittest.TestCase):
                     )
                     continue
 
+                output = NATIVE_OUTPUT.get(
+                    launch.text_argument(call, "executable"), WHEELS
+                )
                 targets = {
                     destination
                     for source, destination in launch.remappings(call)
-                    if source == WHEELS
+                    if source == output
                 }
                 self.assertTrue(
                     targets,

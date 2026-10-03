@@ -265,59 +265,73 @@ The map will look cleaner than the car's. The simulated robot has wheel
 sensors to help it; the car doesn't, so its map drifts a little along long
 bare walls.
 
-Open three terminals in the Codespace (**Terminal → New Terminal**). In
+Open two terminals in the Codespace (**Terminal → New Terminal**). In
 **each** one, first run:
 
 ```bash
 cd /workspaces/e/robot/ros2_ws && source install/setup.bash && export ROS_DOMAIN_ID=49
 ```
 
-(If `install/setup.bash` is missing, build first: see
-[Build the workspace](#build-the-workspace).)
+(If `install/setup.bash` is missing, or you have just pulled changes, build
+first: see [Build the workspace](#build-the-workspace).)
 
-1. **Terminal 1: the simulated room, and the map builder.**
-
-   ```bash
-   ros2 launch robot_bringup simulation.launch.py rviz:=false headless:=true &
-   sleep 20 && ros2 launch robot_bringup slam.launch.py
-   ```
-
-2. **Terminal 2: the viewer your Mac connects to.** It's watch-only: nothing
-   connected to it can move the robot.
+1. **Terminal 1: the simulated room, the map builder, and the viewer your Mac
+   connects to,** all in one. The viewer is watch-only: nothing connected to
+   it can move the robot. The map builder starts 20 seconds after the rest.
 
    ```bash
-   ros2 launch robot_bringup viewer.launch.py
+   ros2 launch robot_bringup sim_mapping.launch.py
    ```
 
-3. **Let the Mac reach it.** In the Codespace's **Ports** tab, find port
+2. **Let the Mac reach it.** In the Codespace's **Ports** tab, find port
    **8765**, right-click it, and set **Port Visibility → Public**. The
    Foxglove app can't sign in to GitHub, so a private port turns it away.
    Anyone with the address can then *watch* the simulation, nothing more.
    Set it back to **Private** when you finish.
-4. **On the Mac,** open Foxglove, choose **Open connection → Foxglove
+3. **On the Mac,** open Foxglove, choose **Open connection → Foxglove
    WebSocket**, and enter the address from the Ports tab with `https://`
    changed to `wss://`, for example
    `wss://<codespace-name>-8765.app.github.dev`. Then
    [set up the view](#set-up-the-view-in-foxglove).
-5. **Terminal 3: drive.** The usual `teleop.launch.py` opens its own window,
+4. **Terminal 2: drive.** The usual `teleop.launch.py` opens its own window,
    which a Codespace can't show, so start the same keyboard driver directly.
    Its commands still go through the safety gate:
 
    ```bash
-   ros2 run teleop_twist_keyboard teleop_twist_keyboard \
-     --ros-args -r cmd_vel:=cmd_vel_requested -p use_sim_time:=true
+   ros2 run key_teleop key_teleop --ros-args -r key_vel:=cmd_vel_requested \
+     --params-file install/robot_bringup/share/robot_bringup/config/key_teleop.yaml
    ```
 
-   Click in this terminal, then use `i` (forward), `j` / `l` (turn),
-   `,` (back) and `k` (stop). Press `z` a few times first to slow down.
+   Click in this terminal, then **hold** the arrow keys: up and down to go,
+   left and right to turn. The robot keeps moving while a key is held and
+   stops by itself about half a second after you let go. Press `q` to quit.
    Drive slowly round the room and watch the map fill in on the Mac.
 
-To finish, press **Ctrl+C** in each terminal (in Terminal 1, also run
-`kill %1` for the simulation), and set port 8765 back to **Private**.
+   It slows to about a third of its speed near walls and furniture, and
+   stops short of them. That's the safety gate working, not a fault. Turn
+   away (left or right) and it speeds up again.
+
+   Hold one key at a time: a terminal only repeats the last key pressed, so
+   up and left together turns for a moment and then just goes straight.
+
+To finish, press **q** in Terminal 2 and **Ctrl+C** in Terminal 1, and set
+port 8765 back to **Private**.
+
+Checked 2026-10-03, in a Codespace: the steps above start everything, and
+while an arrow key is held the robot is commanded continuously, without
+stopping, and stops 0.4-0.5 s after release. The simulation runs at about
+three quarters of real speed on a 2-core Codespace, so everything looks a
+little slow; that is the computer, not the robot. If the robot stutters right
+at the start of a key press, shorten **Delay Until Repeat** in the Mac's
+**System Settings → Keyboard**.
 
 ### Set up the view in Foxglove
 
 The same steps work for the rehearsal and for the real car.
+
+The quick way: in Foxglove choose **Layouts → Import from file** and pick
+`docs/foxglove/robot-mapping-layout.json` (download it from GitHub to the Mac
+first). It sets up everything below. To do it by hand instead:
 
 1. Add a **3D** panel (or use the one Foxglove opens with).
 2. In the panel's settings, set the **display frame** to `map`, so the map

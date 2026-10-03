@@ -1,0 +1,21 @@
+# Keyboard driving with key_teleop: arrow keys, q to quit.
+#
+# key_teleop rather than teleop_twist_keyboard because it sends a command at a
+# steady rate while a key is held, and zero within 0.4 s of letting go.
+# teleop_twist_keyboard sends one command per key press, so the gate's
+# command_timeout stops the robot in the pause before the terminal starts
+# repeating the key, and it lurches.
+#
+# Its output topic, key_vel, must be remapped to cmd_vel_requested wherever it
+# is started; teleop.launch.py and docs/getting-started.md both do.
+key_teleop:
+  ros__parameters:
+    # The safety gate takes a plain Twist.
+    twist_stamped_enabled: false
+    # Same rate as the gate (control_rate_hz in safety.yaml).
+    hz: 20
+    # Slow enough to map with, and below max_speed in base_dynamics.yaml: the
+    # gate does not cap speed yet, and the stop distances assume that limit.
+    forward_rate: 0.3
+    backward_rate: 0.2
+    rotation_rate: 0.6

@@ -353,7 +353,23 @@ class LaunchFileTests(unittest.TestCase):
 
     def test_teleop_publishes_requests_not_gated_motion(self) -> None:
         # Teleop must go through the gate like every other motion source.
-        self.assertIn('("/cmd_vel", "/cmd_vel_requested")', self.teleop)
+        self.assertIn('("key_vel", "cmd_vel_requested")', self.teleop)
+
+    def test_keyboard_speeds_stay_within_what_the_gate_assumes(self) -> None:
+        # The gate does not cap speed yet (see robot_safety's expected
+        # failure), so the keyboard must not ask for more than max_speed.
+        keys = yaml.safe_load((CONFIG / "key_teleop.yaml").read_text())
+        keys = keys["key_teleop"]["ros__parameters"]
+        dynamics = yaml.safe_load((CONFIG / "base_dynamics.yaml").read_text())
+        gate = yaml.safe_load((CONFIG / "safety.yaml").read_text())
+        gate = gate["safety_controller"]["ros__parameters"]
+
+        self.assertLessEqual(keys["forward_rate"], dynamics["max_speed"])
+        self.assertLessEqual(keys["backward_rate"], dynamics["max_speed"])
+        self.assertIs(keys["twist_stamped_enabled"], False)
+        # A held key must reach the gate at least as often as it checks, so it
+        # is never mistaken for a lost command stream.
+        self.assertGreaterEqual(keys["hz"], gate["control_rate_hz"])
 
 
 def read_pgm(path: Path) -> tuple[int, int, bytes]:
