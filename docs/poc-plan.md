@@ -22,6 +22,54 @@ bought. **Still to buy: about $78 before tax, plus two shipping charges not
 yet known**, almost all of it the emergency stop. See
 [still to buy](#still-to-buy).
 
+**Changed 2026-10-05: the lidar won't arrive in time, so the room is mapped
+first with an iPhone 17 Pro and Polycam.** See
+[map the room with the phone](#map-the-room-with-the-phone-before-the-lidar).
+That map is the first deliverable. The goal and "done means" above still
+stand: they wait for the lidar.
+
+---
+
+## Map the room with the phone, before the lidar
+
+The phone's depth sensor scans the room in 3D. `scan_to_map` turns that scan
+into the same kind of map file the robot's software uses: it slices the scan
+at the height the lidar will sit, so it marks what the lidar would bump into,
+and draws it from above.
+
+**What it is and isn't.** The phone map shows the room's real shape. The
+robot didn't make it, and it can't yet tell where it is on it; that needs the
+lidar. The robot's safety gate also won't turn the wheels without the lidar
+(no lidar reading, no motion — on purpose), so the base doesn't drive in this
+step.
+
+**The RC car is only a camera dolly.** It's a separate toy carrying the
+phone, driven by its own remote. It isn't the robot and no robot software
+touches it. Still: nobody else in the room, and drive it slowly.
+
+1. In Polycam, start a **LiDAR** capture (not Room mode, and not Photo mode).
+2. Fix the phone to the RC car, screen up, back camera facing forward and
+   tilted slightly down so it sees the floor and the bottoms of the walls.
+   Tape it well: if it slips mid-scan the map smears.
+3. Drive **very slowly** around the room, close to the walls and round the
+   furniture, with gentle turns. Fast moves and bumps make the phone lose
+   track of where it is. If it does, try again — or just carry the phone
+   round at knee height, which is the reliable fallback.
+4. Finish, let Polycam process, then **Export → glTF (GLB)**. That's in the
+   free plan. AirDrop the file to the Mac and put it in the project, e.g.
+   `docs/runs/2026-10-xx-room-scan.glb`.
+5. Convert it (inside the dev container, from the repository root):
+
+   ```bash
+   PYTHONPATH=robot/ros2_ws/src/robot_bringup python3 -m robot_bringup.scan_to_map \
+     docs/runs/2026-10-xx-room-scan.glb -f robot/ros2_ws/src/robot_bringup/maps/living_room
+   ```
+
+   `--height` sets the slicing height in metres (default 0.195, the
+   placeholder lidar height). Change it once the real lidar is mounted.
+6. Open `living_room.pgm` to check it: black is walls and furniture, white is
+   floor, grey is never seen. Commit the map and the scan.
+
 ---
 
 ## Read this first: there is no physical emergency stop yet
@@ -605,6 +653,17 @@ These change what gets built or bought. Answer them before Stage 2.
 | Driving keys work in a plain ssh terminal | Stage 0 or 3 | `teleop.launch.py` opens a window, which a Pi with no screen can't do |
 | Battery charger's voltage suits this battery | You, on arrival | The charger gives 14.6 V; ExpertPower's page lists a 14.4 V charge voltage. Check the battery's manual |
 | WAGO connectors are genuine | On arrival | |
+
+## What changed on 2026-10-05, and why
+
+- **The lidar won't arrive in time, so the first map comes from the phone.**
+  An iPhone 17 Pro running Polycam, carried round by a toy RC car (not the
+  09-28 RC-car plan: no robot software is on it). `scan_to_map` converts the
+  scan. See
+  [map the room with the phone](#map-the-room-with-the-phone-before-the-lidar).
+- **Nothing about the base or its safety changes.** The gate still refuses
+  to move the wheels without a lidar reading, and Stages 1–6 still need the
+  lidar.
 
 ## What changed on 2026-09-30, and why
 
