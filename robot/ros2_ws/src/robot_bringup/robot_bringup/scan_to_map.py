@@ -34,6 +34,17 @@ FLOOR_BAND = 0.05
 # Heights below this fraction of all vertices are noise under the floor.
 FLOOR_PERCENTILE = 0.01
 
+# The obstacle report seeds its floor from the lowest cell in tiles this wide.
+FLOOR_TILE = 0.5
+
+# The obstacle report's thresholds, all in metres above the floor.
+# The lidar's height - a guess until the real lidar is mounted and measured.
+LIDAR_HEIGHT = 0.195
+# Lower than this is the floor's own texture and the scan's noise.
+MIN_OBSTACLE = 0.02
+# Up to this, a thing is low enough to trip over rather than walk round.
+TRIP_HAZARD_MAX = 0.30
+
 _COMPONENTS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
 _FORMATS = {5121: "B", 5123: "H", 5125: "I", 5126: "f"}
 _IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
@@ -134,6 +145,10 @@ def triangles(path: Path) -> list[tuple[tuple[float, float, float], ...]]:
     return found
 
 
+class NothingAtHeight(ValueError):
+    """Nothing in the scan reaches the slice: the lidar would see no obstacle."""
+
+
 def _cut(triangle, height: float):
     """The segment where a triangle crosses the plane at `height`, if any."""
     ends = []
@@ -148,9 +163,15 @@ def _cut(triangle, height: float):
     return ends[:2] if len(ends) >= 2 else None
 
 
-def render(scan: Path, resolution: float = 0.05, height: float = 0.195,
+def render(scan: Path, resolution: float = 0.05, height: float = LIDAR_HEIGHT,
            margin: float = 0.3) -> OccupancyGrid:
-    """Turn a glTF scan into an occupancy grid sliced `height` above the floor."""
+    """Turn a glTF scan into an occupancy grid sliced `height` above the floor.
+
+    The slice is level, `height` above the lowest of the floor. On a tilted
+    floor that is less than `height` above the high side, so it can only
+    catch more than report(), which measures from the fitted, tilted floor -
+    never less. The two can disagree on a thing at about the lidar's height.
+    """
     tris = triangles(scan)
     heights = sorted(p[2] for tri in tris for p in tri)
     floor = heights[int(len(heights) * FLOOR_PERCENTILE)]
@@ -159,7 +180,7 @@ def render(scan: Path, resolution: float = 0.05, height: float = 0.195,
     walls = [cut for tri in tris if (cut := _cut(tri, plane))]
     floors = [tri for tri in tris if all(abs(p[2] - floor) <= FLOOR_BAND for p in tri)]
     if not walls:
-        raise ValueError(f"nothing in {scan} crosses {height} m above the floor")
+        raise NothingAtHeight(f"nothing in {scan} crosses {height} m above the floor")
     if not floors:
         raise ValueError(f"no floor found in {scan}")
 
@@ -202,30 +223,250 @@ def render(scan: Path, resolution: float = 0.05, height: float = 0.195,
     return OccupancyGrid(cells, resolution, origin)
 
 
+def _solve3(m: list[list[float]], v: list[float]) -> list[float]:
+    """Cramer's rule for a 3x3 system: all the plane fit needs."""
+    def det(a):
+        return (a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+                - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+                + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]))
+    d = det(m)
+    if abs(d) < 1e-12:  # All the points on one line: no single plane.
+        raise ValueError("too little floor in the scan to fit a plane")
+    return [det([[v[r] if c == k else m[r][c] for c in range(3)] for r in range(3)]) / d
+            for k in range(3)]
+
+
+def _fit_plane(points: list[tuple[float, float, float]]) -> tuple[float, float, float]:
+    """Least-squares z = a x + b y + c through the points."""
+    if len(points) < 3:
+        raise ValueError("too little floor in the scan to fit a plane")
+    sx = sy = sz = sxx = sxy = syy = sxz = syz = 0.0
+    for x, y, z in points:
+        sx, sy, sz = sx + x, sy + y, sz + z
+        sxx, sxy, syy = sxx + x * x, sxy + x * y, syy + y * y
+        sxz, syz = sxz + x * z, syz + y * z
+    return tuple(_solve3([[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, len(points)]],
+                         [sxz, syz, sz]))
+
+
+def _hull(points: list[tuple[float, float]]) -> list[list[float]]:
+    """Convex hull, anticlockwise, rounded to the millimetre."""
+    pts = sorted(set(points))
+    if len(pts) < 3:
+        return [[round(x, 3), round(y, 3)] for x, y in pts]
+
+    def chain(seq):
+        out = []
+        for p in seq:
+            while len(out) >= 2:
+                (ax, ay), (bx, by) = out[-2], out[-1]
+                if (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax) > 0:
+                    break
+                out.pop()
+            out.append(p)
+        return out[:-1]
+    return [[round(x, 3), round(y, 3)] for x, y in chain(pts) + chain(pts[::-1])]
+
+
+def report(scan: Path, resolution: float = 0.03,
+           lidar_height: float = LIDAR_HEIGHT) -> dict:
+    """What stands on the scanned floor, and whether the lidar would see it.
+
+    The lidar slice above only shows what crosses one plane. An older person
+    trips over what is under it - a shoe, a cable, a ball - so this looks at
+    everything that rises off the floor, however low.
+
+    * The mesh is rasterized into cells: each keeps the lowest and highest
+      surface over it. A cell no triangle covers is unknown.
+    * The floor is a plane fitted to the cells' lowest surfaces, refitted
+      twice without the cells that sit well off it, so a slight tilt in the
+      floor (or in how the phone held level) does not read as an obstacle.
+    * Every cell whose highest surface is more than MIN_OBSTACLE above that
+      plane is raised; touching raised cells are one obstacle.
+    * A raised patch touching unknown cells or the scan's edge goes in
+      `unmeasured`, not `obstacles`. Where a phone scan runs out the mesh
+      curls up into a ragged rim, which is an artifact and not a thing - but
+      so does a real object half out of the scan, one hiding a shadow the
+      phone never saw behind it, or furniture merged with a wall. Its height
+      and extent cannot be trusted, and it is never dropped silently: a
+      report of no trip hazards must not mean they were all thrown away.
+    """
+    tris = triangles(scan)
+    xs = [p[0] for tri in tris for p in tri]
+    ys = [p[1] for tri in tris for p in tri]
+    origin = (min(xs), min(ys))
+    columns = int((max(xs) - origin[0]) / resolution) + 1
+    rows = int((max(ys) - origin[1]) / resolution) + 1
+    low = [[None] * columns for _ in range(rows)]
+    high = [[None] * columns for _ in range(rows)]
+
+    def mark(column, row, z):
+        if 0 <= row < rows and 0 <= column < columns:
+            if low[row][column] is None or z < low[row][column]:
+                low[row][column] = z
+            if high[row][column] is None or z > high[row][column]:
+                high[row][column] = z
+
+    for (ax, ay, az), (bx, by, bz), (cx, cy, cz) in tris:
+        for x, y, z in ((ax, ay, az), (bx, by, bz), (cx, cy, cz)):
+            mark(int((x - origin[0]) / resolution), int((y - origin[1]) / resolution), z)
+        area = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
+        if area == 0:
+            continue  # Seen edge-on: a vertical face. Its corners are marked.
+        for row in range(int((min(ay, by, cy) - origin[1]) / resolution),
+                         int((max(ay, by, cy) - origin[1]) / resolution) + 1):
+            for column in range(int((min(ax, bx, cx) - origin[0]) / resolution),
+                                int((max(ax, bx, cx) - origin[0]) / resolution) + 1):
+                px = origin[0] + (column + 0.5) * resolution
+                py = origin[1] + (row + 0.5) * resolution
+                u = ((bx - px) * (cy - py) - (cx - px) * (by - py)) / area
+                v = ((cx - px) * (ay - py) - (ax - px) * (cy - py)) / area
+                if u >= 0 and v >= 0 and u + v <= 1:
+                    mark(column, row, u * az + v * bz + (1 - u - v) * cz)
+
+    def centre(column, row):
+        return (origin[0] + (column + 0.5) * resolution,
+                origin[1] + (row + 0.5) * resolution)
+
+    known = [(c, r) for r in range(rows) for c in range(columns) if low[r][c] is not None]
+    # Seed with the lowest cell in each tile: floor wherever a tile has any,
+    # so a big room's slope is in the seed and not mistaken for obstacles.
+    lowest = {}
+    tile = max(1, round(FLOOR_TILE / resolution))
+    for c, r in known:
+        key = (c // tile, r // tile)
+        if key not in lowest or low[r][c] < low[lowest[key][1]][lowest[key][0]]:
+            lowest[key] = (c, r)
+    a, b, c0 = _fit_plane([(*centre(c, r), low[r][c]) for c, r in lowest.values()])
+
+    def floor_at(c, r):
+        x, y = centre(c, r)
+        return a * x + b * y + c0
+
+    # Then refit to the cells near it, closer each time, so a tile that is
+    # all bed or all scan rim drops out.
+    for band in (FLOOR_BAND, MIN_OBSTACLE, MIN_OBSTACLE):
+        a, b, c0 = _fit_plane([(*centre(c, r), low[r][c]) for c, r in known
+                               if abs(low[r][c] - floor_at(c, r)) <= band])
+
+    def above(c, r):
+        return high[r][c] - floor_at(c, r)
+
+    raised = {(c, r) for c, r in known if above(c, r) > MIN_OBSTACLE}
+    obstacles, unmeasured = [], []
+    while raised:
+        blob, todo, edge = [], [raised.pop()], False
+        while todo:
+            c, r = todo.pop()
+            blob.append((c, r))
+            # Diagonals too: a box's corner can land in the cell kitty-corner.
+            for nc, nr in ((c + dc, r + dr) for dc in (-1, 0, 1) for dr in (-1, 0, 1)):
+                if not (0 <= nr < rows and 0 <= nc < columns) or low[nr][nc] is None:
+                    edge = True
+                elif (nc, nr) in raised:
+                    raised.remove((nc, nr))
+                    todo.append((nc, nr))
+        corners = [(origin[0] + (c + dc) * resolution, origin[1] + (r + dr) * resolution)
+                   for c, r in blob for dc in (0, 1) for dr in (0, 1)]
+        x0, x1 = min(p[0] for p in corners), max(p[0] for p in corners)
+        y0, y1 = min(p[1] for p in corners), max(p[1] for p in corners)
+        height = round(max(above(c, r) for c, r in blob), 3)
+        found = {
+            "center": [round((x0 + x1) / 2, 3), round((y0 + y1) / 2, 3)],
+            "size": [round(x1 - x0, 3), round(y1 - y0, 3)],
+            "height": height,
+        }
+        if edge:
+            unmeasured.append(found)
+            continue
+        obstacles.append({
+            **found,
+            "outline": _hull(corners),
+            "trip_hazard": MIN_OBSTACLE < height <= TRIP_HAZARD_MAX,
+            "lidar_sees": height >= lidar_height,
+        })
+    # Numbered as a page is read: top row first, left to right.
+    obstacles.sort(key=lambda o: (-o["center"][1], o["center"][0]))
+    unmeasured.sort(key=lambda o: (-o["center"][1], o["center"][0]))
+    obstacles = [{"id": number, **o} for number, o in enumerate(obstacles, 1)]
+
+    middle = ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2)
+    return {
+        "source": scan.name,
+        "units": "metres; x,y in the map frame (x = glTF x, y = -glTF z); "
+                 "heights above the fitted floor",
+        "lidar_height": lidar_height,
+        "trip_hazard_max": TRIP_HAZARD_MAX,
+        "floor": {
+            "area_m2": round(len(known) * resolution ** 2, 2),
+            "outline": _hull(list(zip(xs, ys, strict=True))),
+            "tilt_deg": round(math.degrees(math.atan(math.hypot(a, b))), 2),
+            # glTF y is height, so this is where the viewer's floor sits.
+            "gltf_floor_y": round(a * middle[0] + b * middle[1] + c0, 3),
+        },
+        "bounds": {"min": [round(min(xs), 3), round(min(ys), 3)],
+                   "max": [round(max(xs), 3), round(max(ys), 3)]},
+        "obstacles": obstacles,
+        "unmeasured": unmeasured,
+    }
+
+
 def main() -> None:
+    """Write the lidar-slice map, the obstacle report, or both.
+
+    A scan with nothing tall enough to cross the lidar's plane - a patch of
+    floor with low things on it - has no map to give: every cell would be
+    free, which says the lidar sees a clear floor. That is the finding, not
+    a failure. So no .pgm is written; the note says why, and the report still
+    lists what is there.
+    """
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("scan", type=Path, help="Polycam export, .glb or .gltf.")
     parser.add_argument(
         "-f",
         "--output",
         type=Path,
-        required=True,
         help="Output stem: writes <stem>.pgm and <stem>.yaml, like map_saver_cli.",
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        help="Also write a JSON report of everything standing on the floor.",
     )
     parser.add_argument("--resolution", type=float, default=0.05)
     parser.add_argument(
         "--height",
         type=float,
-        default=0.195,
-        help="Metres above the floor to slice at: the lidar's height (default 0.195).",
+        default=LIDAR_HEIGHT,
+        help="Metres above the floor to slice at: the lidar's height "
+             f"(default {LIDAR_HEIGHT}).",
     )
     arguments = parser.parse_args()
+    if not arguments.output and not arguments.report:
+        parser.error("give -f/--output, --report, or both")
 
-    grid = render(arguments.scan, arguments.resolution, arguments.height)
-    pgm = arguments.output.with_suffix(".pgm")
-    pgm.write_bytes(grid.pgm())
-    arguments.output.with_suffix(".yaml").write_text(grid.yaml(pgm.name))
-    print(f"wrote {pgm} ({grid.width}x{grid.height} cells) and its .yaml")
+    if arguments.report:
+        found = report(arguments.scan, lidar_height=arguments.height)
+        arguments.report.write_text(json.dumps(found, indent=1) + "\n")
+        blind = sum(not o["lidar_sees"] for o in found["obstacles"])
+        print(f"wrote {arguments.report}: {len(found['obstacles'])} obstacles, "
+              f"{blind} of them too low for the lidar to see; "
+              f"{len(found['unmeasured'])} more raised patches at the scan's edge "
+              "or partly hidden were not measured - check them by eye")
+
+    if arguments.output:
+        try:
+            grid = render(arguments.scan, arguments.resolution, arguments.height)
+        except NothingAtHeight:
+            print(f"no map written: nothing in the scan reaches {arguments.height} m "
+                  "(the lidar's height) above the lowest of the floor, so the lidar "
+                  "would see an empty floor here. "
+                  "Anything on it is too low for the lidar - see --report.")
+            return
+        pgm = arguments.output.with_suffix(".pgm")
+        pgm.write_bytes(grid.pgm())
+        arguments.output.with_suffix(".yaml").write_text(grid.yaml(pgm.name))
+        print(f"wrote {pgm} ({grid.width}x{grid.height} cells) and its .yaml")
 
 
 if __name__ == "__main__":

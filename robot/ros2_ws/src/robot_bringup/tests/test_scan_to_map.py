@@ -15,7 +15,7 @@ import struct
 import tempfile
 import unittest
 
-from robot_bringup.scan_to_map import render
+from robot_bringup.scan_to_map import LIDAR_HEIGHT, NothingAtHeight, render, report
 from robot_bringup.world_to_map import FREE, OCCUPIED, UNKNOWN
 
 
@@ -101,6 +101,103 @@ class ScanToMapTests(unittest.TestCase):
 
     def test_gltf_with_embedded_buffer_matches_glb(self):
         self.assertEqual(self.render(binary=True).cells, self.render(binary=False).cells)
+
+
+
+REAL_SCAN = Path(__file__).resolve().parents[5] / "docs" / "runs" / "10_5_2026.glb"
+
+
+def floor(x0, z0, x1, z1, step=0.1, tilt=0.0):
+    """A floor of small triangles, as a phone scan makes it, rising `tilt`
+    metres per metre along glTF x - a floor or a phone not quite level."""
+    tris = []
+    nx, nz = round((x1 - x0) / step), round((z1 - z0) / step)
+    for i in range(nx):
+        for j in range(nz):
+            a, b = x0 + i * step, x0 + (i + 1) * step
+            c, d = z0 + j * step, z0 + (j + 1) * step
+            tris += [((a, a * tilt, c), (b, b * tilt, c), (b, b * tilt, d)),
+                     ((a, a * tilt, c), (b, b * tilt, d), (a, a * tilt, d))]
+    return tris
+
+
+class ObstacleReportTests(unittest.TestCase):
+    """A patch of floor with things on it, and no walls: what a phone scan of
+    a corner of a room looks like before the room is finished."""
+
+    def report(self, scene):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "patch.glb"
+            write_scan(path, scene, binary=True)
+            return report(path)
+
+    def test_low_box_is_a_trip_hazard_the_lidar_misses(self):
+        found = self.report(floor(0, 0, 2, 2, tilt=0.01) + box(0.8, 0.01, 0.8, 1.1, 0.11, 1.0))
+        self.assertEqual(len(found["obstacles"]), 1)
+        stool = found["obstacles"][0]
+        # 10 cm tall, sitting on a floor that rises 1 cm per metre.
+        self.assertAlmostEqual(stool["height"], 0.1, delta=0.01)
+        self.assertTrue(stool["trip_hazard"])
+        self.assertFalse(stool["lidar_sees"])
+        self.assertAlmostEqual(found["floor"]["tilt_deg"], math.degrees(math.atan(0.01)),
+                               delta=0.1)
+        # 0.3 x 0.2 m, a cell or so either way.
+        self.assertAlmostEqual(stool["size"][0] * stool["size"][1], 0.06, delta=0.04)
+
+    def test_box_above_the_lidar_is_seen(self):
+        found = self.report(floor(0, 0, 2, 2) + box(0.8, 0, 0.8, 1.1, 0.4, 1.0))
+        (tall,) = found["obstacles"]
+        self.assertGreater(tall["height"], LIDAR_HEIGHT)
+        self.assertTrue(tall["lidar_sees"])
+        self.assertFalse(tall["trip_hazard"])
+
+    def test_rim_where_the_scan_runs_out_is_not_an_obstacle(self):
+        # The last strip of the scan curls up 10 cm, as a Polycam edge does.
+        rim = [tuple((x, 0.1 if x == 2.2 else y, z) for x, y, z in tri)
+               for tri in floor(2.0, 0, 2.2, 2, step=0.2)]
+        found = self.report(floor(0, 0, 2, 2) + rim)
+        self.assertEqual(found["obstacles"], [])
+        # Not measured, but not thrown away either.
+        self.assertEqual(len(found["unmeasured"]), 1)
+        self.assertLess(found["floor"]["tilt_deg"], 0.5)
+
+    def test_box_with_unscanned_floor_behind_it_is_unmeasured_not_lost(self):
+        # The phone never saw the strip behind the box: its shadow.
+        scene = (floor(0, 0, 2, 0.8) + floor(0, 1.1, 2, 2)
+                 + box(0.8, 0, 0.5, 1.1, 0.1, 0.8))
+        found = self.report(scene)
+        self.assertEqual(found["obstacles"], [])
+        (hidden,) = found["unmeasured"]
+        self.assertAlmostEqual(hidden["height"], 0.1, delta=0.01)
+
+    def test_big_tilted_floor_is_not_an_obstacle(self):
+        # 1 degree over 6 m is 10 cm of rise: more than the floor band.
+        found = self.report(floor(0, 0, 6, 6, step=0.2, tilt=math.tan(math.radians(1))))
+        self.assertEqual(found["obstacles"], [])
+        self.assertEqual(found["unmeasured"], [])
+        self.assertAlmostEqual(found["floor"]["tilt_deg"], 1.0, delta=0.05)
+
+    def test_too_little_floor_says_so(self):
+        with self.assertRaisesRegex(ValueError, "too little floor"):
+            self.report([((0, 0, 0), (0.01, 0, 0), (0, 0, 0.01))])
+
+    def test_slice_with_nothing_at_lidar_height_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "patch.glb"
+            write_scan(path, floor(0, 0, 2, 2) + box(0.8, 0, 0.8, 1.1, 0.1, 1.0), True)
+            with self.assertRaises(NothingAtHeight):
+                render(path)
+
+    @unittest.skipUnless(REAL_SCAN.exists(), "the 10_5_2026 phone scan is not checked out")
+    def test_real_scan_has_five_balls_the_lidar_cannot_see(self):
+        found = report(REAL_SCAN)
+        balls = [(-0.47, 0.19), (0.15, 0.40), (-0.20, -0.22), (0.29, -0.27), (0.05, -0.58)]
+        self.assertEqual(len(found["obstacles"]), 5)
+        for x, y in balls:
+            nearest = min(found["obstacles"], key=lambda o: math.dist(o["center"], (x, y)))
+            self.assertLess(math.dist(nearest["center"], (x, y)), 0.08)
+            self.assertTrue(nearest["trip_hazard"])
+            self.assertFalse(nearest["lidar_sees"])
 
 
 if __name__ == "__main__":

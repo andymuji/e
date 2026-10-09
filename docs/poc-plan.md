@@ -47,14 +47,28 @@ step.
 phone, driven by its own remote. It isn't the robot and no robot software
 touches it. Still: nobody else in the room, and drive it slowly.
 
+**What the first test scan (2026-10-05) showed.** The phone stood upright on
+the car and scanned a 2.4 × 2.5 m patch of floor with five balls on it,
+8–17 cm tall. It saw the balls clearly. Two lessons came out of it:
+
+- **The lidar will be blind to all five balls.** It will sit about 20 cm up
+  and sweeps a flat slice at that height, so anything lower passes under it.
+  Shoes, balls, a dropped cane: those are what an older person trips on. The
+  phone scan is how we see them, and the room report marks them.
+- **A low phone sees about a metre around itself.** That's why the scan ends
+  in a ragged edge and caught no walls. Drive along every wall to get them.
+
 1. In Polycam, start a **LiDAR** capture (not Room mode, and not Photo mode).
-2. Fix the phone to the RC car, screen up, back camera facing forward and
+2. Fix the phone upright to the RC car, back camera facing forward and
    tilted slightly down so it sees the floor and the bottoms of the walls.
    Tape it well: if it slips mid-scan the map smears.
-3. Drive **very slowly** around the room, close to the walls and round the
-   furniture, with gentle turns. Fast moves and bumps make the phone lose
-   track of where it is. If it does, try again — or just carry the phone
-   round at knee height, which is the reliable fallback.
+3. Drive **very slowly** around the room. First go once round along the
+   walls, about half a metre out. Then weave between the furniture. Turn
+   gently, and stop for a second after each turn. Fast moves and bumps make
+   the phone lose track of where it is. If it does, try again — or just
+   carry the phone round at knee height, which is the reliable fallback.
+   Bright, even light gives a sharper picture: the first scan's colours
+   smeared where it moved fast.
 4. Finish, let Polycam process, then **Export → glTF (GLB)**. That's in the
    free plan. AirDrop the file to the Mac and put it in the project, e.g.
    `docs/runs/2026-10-xx-room-scan.glb`.
@@ -62,13 +76,21 @@ touches it. Still: nobody else in the room, and drive it slowly.
 
    ```bash
    PYTHONPATH=robot/ros2_ws/src/robot_bringup python3 -m robot_bringup.scan_to_map \
-     docs/runs/2026-10-xx-room-scan.glb -f robot/ros2_ws/src/robot_bringup/maps/living_room
+     docs/runs/2026-10-xx-room-scan.glb -f robot/ros2_ws/src/robot_bringup/maps/living_room \
+     --report docs/room-viewer/room.json
    ```
 
    `--height` sets the slicing height in metres (default 0.195, the
    placeholder lidar height). Change it once the real lidar is mounted.
+   The report lists everything standing on the floor: where it is, how big,
+   how tall, whether it's a trip hazard, and whether the lidar would see it.
+   If nothing reaches the lidar's height, it writes the report but no map,
+   and says so — an empty map would wrongly claim the floor is clear.
 6. Open `living_room.pgm` to check it: black is walls and furniture, white is
-   floor, grey is never seen. Commit the map and the scan.
+   floor, grey is never seen. Commit the map, the report and the scan.
+7. To see it on the website, ask Claude to republish the room viewer
+   (`docs/room-viewer/index.html`) with the new scan as `room.glb`. It's a
+   private page only you can open.
 
 ---
 
