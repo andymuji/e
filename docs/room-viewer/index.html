@@ -10,18 +10,22 @@
 </script>
 <style>
 /* Layout: a drawing sheet - title block across the top, the plan fills the sheet, a schedule of obstacles docks right (below on phones). */
+/* Every text colour below is at least 4.5:1 against --paper, --sheet and --floor (the hover/selected row) in both themes. */
 :root {
   --paper: #edf1f6;      /* whiteprint sheet */
   --sheet: #f8fafc;      /* panels, label tags */
-  --floor: #dfe7f1;      /* scanned floor fill */
+  --floor: #dfe7f1;      /* scanned floor fill, hover and selected rows */
   --grid: #d2dbe7;
   --grid-major: #a9bbd2;
-  --ink: #142a4c;        /* prussian drafting ink */
-  --ink-2: #4b5f7d;
+  --ink: #142a4c;        /* prussian drafting ink; walls */
+  --ink-2: #4b5f7d;      /* secondary text, unmeasured patches, unknown objects */
   --accent: #1d5fc4;     /* selection, ruler, lidar line */
-  --hazard: #c4301b;     /* trip hazard the robot cannot see */
-  --seen: #0d7a69;       /* robot can see it */
-  --other: #a77300;      /* everything else */
+  --hazard: #b42a16;     /* trip hazard the robot can't see */
+  --hit: #7a35a8;        /* not a trip hazard, but the beam misses it */
+  --marginal: #8a5a00;   /* the beam only grazes it */
+  --seen: #0b6a5b;       /* the robot should see it */
+  --unknown: #4b5f7d;    /* measurements missing: treat as a hazard */
+  --drop: #a3126a;       /* drop-off: the floor falls away - fall risk */
   --font-display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --font-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
   --font-data: "Martian Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -29,21 +33,22 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper: #0b2241; --sheet: #102c52; --floor: #143563; --grid: #17406f; --grid-major: #2a5a96;
-    --ink: #e8f0fa; --ink-2: #a3b8d4; --accent: #8cc2ff; --hazard: #ff6e4f; --seen: #45d6b6; --other: #f0c04f;
+    --ink: #e8f0fa; --ink-2: #a3b8d4; --accent: #8cc2ff; --hazard: #ff7a5c; --hit: #d7a8ff; --marginal: #f0c04f; --seen: #45d6b6; --unknown: #a3b8d4; --drop: #ff86cf;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --paper: #0b2241; --sheet: #102c52; --floor: #143563; --grid: #17406f; --grid-major: #2a5a96;
-  --ink: #e8f0fa; --ink-2: #a3b8d4; --accent: #8cc2ff; --hazard: #ff6e4f; --seen: #45d6b6; --other: #f0c04f;
+  --ink: #e8f0fa; --ink-2: #a3b8d4; --accent: #8cc2ff; --hazard: #ff7a5c; --hit: #d7a8ff; --marginal: #f0c04f; --seen: #45d6b6; --unknown: #a3b8d4; --drop: #ff86cf;
   color-scheme: dark;
 }
 
 html, body { height: 100%; }
-body { background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.45; }
 * { box-sizing: border-box; }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#plan:focus-visible { outline-offset: -3px; }
 
 .app { height: 100%; display: grid; grid-template-rows: auto 1fr; gap: 12px; padding-inline: 16px; padding-block: 14px; overflow: hidden; }
 
@@ -52,7 +57,7 @@ button { font: inherit; color: inherit; }
 .tb-name { padding: 10px 16px; border-right: 1.5px solid var(--ink); display: flex; flex-direction: column; justify-content: center; gap: 2px; }
 .eyebrow { font-family: var(--font-data); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
 h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weight: 800; font-size: 22px; letter-spacing: .01em; line-height: 1.1; text-transform: uppercase; text-wrap: balance; }
-.tb-body { display: grid; grid-template-rows: auto auto; min-width: 0; }
+.tb-body { display: grid; grid-auto-rows: auto; min-width: 0; }
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-bottom: 1px solid var(--grid-major); }
 .stat { padding: 7px 14px; border-right: 1px solid var(--grid-major); min-width: 0; }
 .stat:last-child { border-right: 0; }
@@ -60,7 +65,9 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
 .stat dd { margin: 0; font-family: var(--font-display); font-stretch: 100%; font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .stat dd small { font-weight: 500; font-size: 12px; color: var(--ink-2); }
 .stat.alert dd { color: var(--hazard); }
+.stat dd .plus { display: block; font-size: 12px; font-weight: 600; color: var(--hazard); }
 .stat.src dd { font-family: var(--font-data); font-size: 12px; font-weight: 500; line-height: 1.35; padding-top: 4px; }
+.banner { margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--grid-major); border-left: 6px solid var(--hazard); font-weight: 700; color: var(--hazard); font-size: 14.5px; }
 .finding { margin: 0; padding: 8px 14px; font-size: 14.5px; max-width: 80ch; display: flex; gap: 10px; align-items: flex-start; }
 .finding svg { flex: none; margin-top: 2px; }
 
@@ -73,28 +80,33 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
 #plan.dragging { cursor: grabbing; }
 .view3d { position: absolute; inset: 0; }
 .labels3d { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.tag3d { position: absolute; transform: translate(-50%, -100%); font-family: var(--font-data); font-size: 10.5px; padding: 1px 5px; background: var(--sheet); border: 1px solid currentColor; white-space: nowrap; }
+.tag3d { position: absolute; transform: translate(-50%, -100%); font-family: var(--font-data); font-size: 10.5px; padding: 1px 5px; background: var(--sheet); border: 1px solid currentColor; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
 .lidar-tag { position: absolute; transform: translate(0, -100%); max-width: 230px; padding: 6px 9px; background: var(--sheet); border: 1.5px solid var(--accent); color: var(--ink); font-size: 12.5px; line-height: 1.35; }
 .lidar-tag b { display: block; color: var(--accent); font-family: var(--font-data); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; }
 
 .toolbar { position: absolute; top: 10px; left: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; pointer-events: none; z-index: 2; }
 .toolbar > * { pointer-events: auto; }
 .seg { display: inline-flex; border: 1.5px solid var(--ink); background: var(--sheet); }
-.btn { border: 0; background: transparent; padding: 6px 12px; font-family: var(--font-data); font-size: 11.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; min-height: 34px; display: inline-flex; align-items: center; gap: 6px; }
+.btn { border: 0; background: transparent; padding: 6px 12px; font-family: var(--font-data); font-size: 11.5px; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; cursor: pointer; min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .seg .btn + .btn { border-left: 1.5px solid var(--ink); }
 .btn[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
-.btn:hover:not([aria-pressed="true"]) { background: var(--floor); }
+.btn:hover:not([aria-pressed="true"]):not(:disabled) { background: var(--floor); }
+.btn:disabled { cursor: not-allowed; color: var(--ink-2); text-decoration: line-through; }
 .spacer { flex: 1; }
 
 .readout { position: absolute; left: 10px; bottom: 10px; z-index: 2; display: flex; gap: 8px; align-items: center; padding: 6px 6px 6px 10px; background: var(--sheet); border: 1.5px solid var(--accent); font-family: var(--font-data); font-size: 12px; max-width: calc(100% - 20px); }
 .readout strong { color: var(--accent); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .readout .btn { min-height: 26px; padding: 2px 8px; border: 1px solid var(--accent); }
 
-.notices { position: absolute; left: 10px; right: 10px; top: 56px; z-index: 3; display: grid; gap: 6px; pointer-events: none; }
-.note { pointer-events: auto; max-width: 520px; padding: 8px 12px; background: var(--sheet); border: 1.5px solid var(--ink); border-left-width: 5px; font-size: 13px; }
+.notices { position: absolute; left: 10px; right: 10px; top: 56px; z-index: 3; display: grid; gap: 6px; pointer-events: none; justify-items: start; }
+.note { pointer-events: auto; max-width: 520px; padding: 8px 6px 8px 12px; background: var(--sheet); border: 1.5px solid var(--ink); border-left-width: 5px; font-size: 13px; display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: start; }
 .note.error { border-color: var(--hazard); }
 .note b { font-family: var(--font-data); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; display: block; }
 .note.error b { color: var(--hazard); }
+.note ul { margin: 4px 0 0; padding-left: 18px; max-height: 40vh; overflow: auto; }
+.note summary { cursor: pointer; color: var(--accent); text-decoration: underline; display: inline-flex; align-items: center; }
+.note .x { border: 0; background: transparent; cursor: pointer; width: 28px; height: 28px; font-size: 18px; line-height: 1; color: var(--ink-2); }
+.note .x:hover { background: var(--floor); color: var(--ink); }
 .hint { position: absolute; right: 10px; bottom: 10px; z-index: 1; font-family: var(--font-data); font-size: 10px; color: var(--ink-2); pointer-events: none; text-align: right; }
 
 /* Side panel */
@@ -102,14 +114,18 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
 .box { border: 1.5px solid var(--ink); background: var(--sheet); }
 .box h2 { margin: 0; padding: 6px 12px; font-family: var(--font-data); font-size: 10.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; border-bottom: 1px solid var(--grid-major); display: flex; justify-content: space-between; gap: 8px; }
 .box h2 span { color: var(--ink-2); font-weight: 400; }
+.box h3 { margin: 0; padding: 6px 12px; font-family: var(--font-data); font-size: 10px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-2); border-top: 1px solid var(--grid-major); border-bottom: 1px solid var(--grid); }
 .legend { list-style: none; margin: 0; padding: 8px 12px; display: grid; gap: 7px; }
 .legend li { display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: center; font-size: 13.5px; line-height: 1.25; }
-.legend li small { display: block; color: var(--ink-2); font-size: 12px; }
-.legend .lead { font-weight: 700; }
-.c-hazard { color: var(--hazard); } .c-seen { color: var(--seen); } .c-other { color: var(--other); } .c-accent { color: var(--accent); }
+.legend li small { display: block; color: var(--ink-2); font-size: 12px; font-weight: 400; }
+.legend b { font-weight: 700; }
+.foot { margin: 0; padding: 0 12px 9px; font-size: 12px; color: var(--ink-2); }
+.c-hidden { color: var(--hazard); } .c-hit { color: var(--hit); } .c-marginal { color: var(--marginal); } .c-seen { color: var(--seen); }
+.c-unknown, .c-unmeasured { color: var(--unknown); } .c-drop { color: var(--drop); } .c-accent { color: var(--accent); } .c-wall { color: var(--ink); }
 
 .detail { padding: 10px 12px 12px; display: grid; gap: 8px; }
-.detail .title { display: flex; gap: 8px; align-items: center; font-family: var(--font-display); font-weight: 700; font-size: 17px; font-stretch: 112%; }
+.detail .title { display: flex; gap: 8px; align-items: center; font-family: var(--font-display); font-weight: 700; font-size: 17px; font-stretch: 112%; overflow-wrap: anywhere; }
+.detail .title svg { flex: none; }
 .detail .cat { font-family: var(--font-data); font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600; }
 .detail dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; font-size: 13px; }
 .detail dt { color: var(--ink-2); }
@@ -125,13 +141,19 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
 .schedule { list-style: none; margin: 0; padding: 0; }
 .schedule li + li { border-top: 1px solid var(--grid); }
 .row { width: 100%; display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 7px 12px; background: transparent; border: 0; text-align: left; cursor: pointer; font-size: 13.5px; }
+.row > span { min-width: 0; overflow-wrap: anywhere; }
 .row:hover { background: var(--floor); }
-.row[aria-pressed="true"] { background: var(--floor); box-shadow: inset 3px 0 0 var(--accent); }
+.row[aria-pressed="true"] { background: var(--floor); box-shadow: inset 4px 0 0 var(--accent); font-weight: 600; }
 .row .h { font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
-.row small { display: block; color: var(--ink-2); font-size: 11.5px; }
+.row small { display: block; font-size: 11.5px; font-weight: 500; }
 
 @media (max-width: 860px) {
-  .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(260px, 1fr) minmax(0, 38%); }
+  /* phones and narrow windows: the page scrolls; the plan gets a fixed share of the screen */
+  html, body { height: auto; }
+  .app { height: auto; overflow: visible; grid-template-rows: auto auto; }
+  .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; }
+  .stage { height: 68vh; height: min(68svh, 600px); min-height: 340px; }
+  .panel { overflow: visible; }
   .titleblock { grid-template-columns: minmax(0, 1fr); }
   .tb-name { border-right: 0; border-bottom: 1.5px solid var(--ink); padding: 7px 12px; flex-direction: row; align-items: baseline; justify-content: space-between; flex-wrap: wrap; column-gap: 12px; }
   h1 { font-size: 18px; }
@@ -141,14 +163,26 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
   .stat.src dd { font-size: 10px; padding-top: 2px; }
   .finding { font-size: 13px; padding: 6px 10px; }
   .hint { display: none; }
-  #detail-box { order: -1; }
+  /* the lidar-height control stays on screen while the plan and headline are in view */
+  #lidar-box { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; border-width: 1.5px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -4px 12px rgb(0 0 0 / .18); }
+  #lidar-box .slider { padding-bottom: 6px; }
+  #lidar-help { display: none; }
+  body { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+  #detail-box { order: -2; }
   .lidar-tag.pinned { transform: none; font-size: 11.5px; max-width: none; }
+  /* touch targets */
+  .btn, .slider .btn, .readout .btn { min-height: 44px; min-width: 44px; }
+  .row { min-height: 44px; }
+  .slider input { min-height: 44px; }
+  .note .x { width: 44px; height: 44px; }
+  .note summary { min-height: 44px; }
 }
 @media (max-width: 480px) {
   .app { gap: 8px; padding-block: 10px; }
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .stat.src { display: none; }
   .btn { padding: 6px 9px; font-size: 10.5px; }
+  .toolbar { gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
@@ -158,9 +192,19 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
     <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
       <line x1="0" y1="0" x2="0" y2="5" style="stroke: var(--hazard); stroke-width: 2"></line>
     </pattern>
-    <symbol id="m-hazard" viewBox="0 0 16 16"><path d="M8 1.5 15 14.5H1z" style="fill: var(--hazard)"></path><path d="M8 6v4.2M8 11.6v1.1" style="stroke: var(--sheet); stroke-width: 1.7"></path></symbol>
+    <pattern id="xhatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <path d="M0 0V6M0 0H6" style="stroke: var(--hit); stroke-width: 1.4"></path>
+    </pattern>
+    <symbol id="m-hidden" viewBox="0 0 16 16"><path d="M8 1.5 15 14.5H1z" style="fill: var(--hazard)"></path><path d="M8 6v4.2M8 11.6v1.1" style="stroke: var(--sheet); stroke-width: 1.7"></path></symbol>
+    <symbol id="m-hit" viewBox="0 0 16 16"><path d="M8 1 15 8 8 15 1 8z" style="fill: var(--hit)"></path></symbol>
+    <symbol id="m-marginal" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" style="fill: none; stroke: var(--marginal); stroke-width: 2"></rect><rect x="2.5" y="2.5" width="5.5" height="11" style="fill: var(--marginal)"></rect></symbol>
     <symbol id="m-seen" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.3" style="fill: var(--seen)"></circle><circle cx="8" cy="8" r="2.4" style="fill: var(--sheet)"></circle></symbol>
-    <symbol id="m-other" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" style="fill: var(--other)"></rect></symbol>
+    <symbol id="m-unknown" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.4" style="fill: var(--sheet); stroke: var(--unknown); stroke-width: 1.6"></circle><text x="8" y="11.6" text-anchor="middle" style="fill: var(--unknown); font: 700 10px sans-serif">?</text></symbol>
+    <pattern id="dropfill" width="4" height="4" patternUnits="userSpaceOnUse">
+      <path d="M0 1H4" style="stroke: var(--drop); stroke-width: 1.6"></path>
+    </pattern>
+    <symbol id="m-drop" viewBox="0 0 16 16"><path d="M1 2.2H15" style="stroke: var(--drop); stroke-width: 2.2"></path><path d="M2 5 14 5 8 15z" style="fill: var(--drop)"></path></symbol>
+    <symbol id="m-unmeasured" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" style="fill: none; stroke: var(--unknown); stroke-width: 1.6; stroke-dasharray: 3 2"></rect></symbol>
   </defs>
 </svg>
 
@@ -171,25 +215,26 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
       <h1>Room Scan Map</h1>
     </div>
     <div class="tb-body">
+      <p class="banner" id="banner" role="alert" hidden>The floor may be misidentified in this scan; heights could be wrong. Rescan with more floor visible.</p>
       <dl class="stats">
         <div class="stat"><dt>Floor scanned</dt><dd id="s-area">&ndash;</dd></div>
         <div class="stat"><dt>Obstacles</dt><dd id="s-count">&ndash;</dd></div>
-        <div class="stat alert"><dt>Hidden trip hazards</dt><dd id="s-hidden">&ndash;</dd></div>
+        <div class="stat alert"><dt>Robot can&rsquo;t see</dt><dd id="s-hidden">&ndash;</dd></div>
         <div class="stat src"><dt>Scan</dt><dd id="s-src">&ndash;</dd></div>
       </dl>
-      <p class="finding"><svg width="16" height="16" aria-hidden="true"><use href="#m-hazard"></use></svg><span id="finding">Loading the scan&hellip;</span></p>
+      <p class="finding"><svg width="16" height="16" aria-hidden="true"><use id="finding-icon" href="#m-hidden"></use></svg><span id="finding">Loading the scan&hellip;</span></p>
     </div>
   </header>
 
   <main class="work">
     <section class="stage" aria-label="Map">
-      <div class="toolbar">
+      <div class="toolbar" id="toolbar">
         <div class="seg" role="group" aria-label="View">
           <button class="btn" id="v-plan" aria-pressed="true">Plan</button>
-          <button class="btn" id="v-3d" aria-pressed="false">3D</button>
+          <button class="btn" id="v-3d" aria-pressed="false" disabled title="Available once the map data has loaded">3D</button>
         </div>
         <div class="seg" role="group" aria-label="Plan tools" id="plan-tools">
-          <button class="btn" id="t-ruler" aria-pressed="false" title="Tap two points to measure">
+          <button class="btn" id="t-ruler" aria-pressed="false" title="Tap two points to measure; from the keyboard, focus the plan and use the arrow keys and Enter">
             <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M1 10 10 1l3 3-9 9z M4 7l1.5 1.5M6 5l1 1M8 3l1.5 1.5" style="fill:none;stroke:currentColor;stroke-width:1.2"></path></svg>Ruler</button>
         </div>
         <span class="spacer"></span>
@@ -199,49 +244,69 @@ h1 { margin: 0; font-family: var(--font-display); font-stretch: 125%; font-weigh
           <button class="btn" id="z-fit">Fit</button>
         </div>
       </div>
-      <canvas id="plan" tabindex="0" aria-label="Top-down plan of the scanned floor. Use the obstacle list to select objects; arrow keys pan, plus and minus zoom."></canvas>
+      <canvas id="plan" tabindex="0" aria-label="Top-down plan of the scanned floor. Arrow keys pan, plus and minus zoom, the [ and ] keys step through the obstacles, Escape clears the selection. In ruler mode the arrow keys move a crosshair and Enter places a point."></canvas>
       <div class="view3d" id="view3d" hidden>
-        <canvas id="three" aria-label="3D view of the scan with obstacles and the lidar height plane"></canvas>
+        <canvas id="three" aria-label="3D view of the scan with obstacles and the lidar height sheet"></canvas>
         <div class="labels3d" id="labels3d"></div>
       </div>
       <div class="notices" id="notices" aria-live="polite"></div>
       <div class="readout" id="readout" hidden>
-        <span id="readout-text">Tap the first point</span>
+        <span id="readout-text" aria-live="polite">Tap the first point</span>
         <button class="btn" id="r-clear">Clear</button>
       </div>
-      <div class="hint" id="hint">Drag to pan &middot; scroll or pinch to zoom &middot; tap an object</div>
+      <div class="hint" id="hint">Drag to pan &middot; scroll or pinch to zoom &middot; tap an object &middot; [ ] steps through them</div>
     </section>
 
     <aside class="panel" aria-label="Legend and obstacles">
-      <section class="box">
+      <section class="box" id="lidar-box">
         <h2><label for="lidar-h">Lidar height</label> <span id="lidar-src">placeholder</span></h2>
         <div class="slider">
-          <input type="range" id="lidar-h" min="5" max="40" step="0.5" value="19.5" aria-describedby="lidar-help">
+          <input type="range" id="lidar-h" min="5" max="40" step="0.1" value="19.5" aria-valuetext="19.5 cm" aria-describedby="lidar-help">
           <output for="lidar-h" id="lidar-out">19.5 cm</output>
           <button class="btn" id="lidar-reset" hidden>Reset</button>
         </div>
-        <p class="empty" id="lidar-help">Slide to try mounting heights. Measure from the floor to the middle of the lidar's window.</p>
+        <p class="empty" id="lidar-help">Slide to try mounting heights. Measure from the floor to the middle of the lidar&rsquo;s window.</p>
+      </section>
+      <section class="box" id="detail-box">
+        <h2>Selected <span id="sel-hint">tap an object</span></h2>
+        <div id="detail" aria-live="polite"><p class="empty">Tap an object on the plan or in the list below to see its size and what it means for the robot.</p></div>
       </section>
       <section class="box">
         <h2>Key</h2>
         <ul class="legend">
-          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:url(#hatch);stroke:var(--hazard);stroke-width:2"></rect><use href="#m-hazard" x="8" y="2" width="14" height="14"></use></svg>
-            <span class="lead c-hazard">Trip hazard &mdash; robot can&rsquo;t see it<small>Lower than the lidar beam. Hatched, triangle marker.</small></span></li>
+          <li id="lg-drop"><svg width="30" height="20" aria-hidden="true"><rect x="1.5" y="1.5" width="27" height="17" style="fill:url(#dropfill);stroke:var(--drop);stroke-width:3"></rect><use href="#m-drop" x="8" y="3" width="14" height="14"></use></svg>
+            <span class="c-drop"><b>Drop-off &mdash; fall risk</b><small>The floor falls away (a step down, a sunken area, stairs). Lined, downward triangle.</small></span></li>
+          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:url(#hatch);stroke:var(--hazard);stroke-width:2"></rect><use href="#m-hidden" x="8" y="2" width="14" height="14"></use></svg>
+            <span class="c-hidden"><b>Trip hazard &mdash; robot can&rsquo;t see it</b><small>Low enough to trip on, and the lidar beam misses it. Hatched, triangle marker.</small></span></li>
+          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:url(#xhatch);stroke:var(--hit);stroke-width:2"></rect><use href="#m-hit" x="8" y="3" width="14" height="14"></use></svg>
+            <span class="c-hit"><b>Robot could hit it</b><small>Not a trip hazard, but the beam misses it. Cross-hatched, diamond marker.</small></span></li>
+          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:none;stroke:var(--marginal);stroke-width:2;stroke-dasharray:2 3"></rect><use href="#m-marginal" x="8" y="3" width="14" height="14"></use></svg>
+            <span class="c-marginal"><b>Marginal &mdash; beam only grazes it</b><small>The robot may or may not see it. Dotted, half-filled square.</small></span></li>
           <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:var(--seen);fill-opacity:.22;stroke:var(--seen);stroke-width:2"></rect><use href="#m-seen" x="8" y="3" width="14" height="14"></use></svg>
-            <span class="c-seen"><b>Robot can see it</b><small>Tall enough to cross the beam. Solid, round marker.</small></span></li>
-          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:none;stroke:var(--other);stroke-width:2;stroke-dasharray:2 3"></rect><use href="#m-other" x="8" y="3" width="14" height="14"></use></svg>
-            <span class="c-other"><b>Other object</b><small>Not a trip hazard. Dotted, square marker.</small></span></li>
+            <span class="c-seen"><b>Robot should see it</b><small>It crosses the beam. Solid, round marker.</small></span></li>
+          <li id="lg-unknown" hidden><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:none;stroke:var(--unknown);stroke-width:2;stroke-dasharray:6 3"></rect><use href="#m-unknown" x="8" y="3" width="14" height="14"></use></svg>
+            <span class="c-unknown"><b>Unknown &mdash; treat as hazard</b><small>Its heights are missing from the report. Dashed, question mark.</small></span></li>
+          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="1" width="28" height="18" style="fill:none;stroke:var(--unknown);stroke-width:1.5;stroke-dasharray:5 4"></rect></svg>
+            <span class="c-unmeasured"><b>Unmeasured patch</b><small>The scan ran out or was hidden here. Check by eye.</small></span></li>
+          <li><svg width="30" height="20" aria-hidden="true"><rect x="1" y="5" width="28" height="10" style="fill:var(--ink);fill-opacity:.15;stroke:var(--ink);stroke-width:2"></rect></svg>
+            <span class="c-wall"><b>Wall</b><small>Not counted as an obstacle.</small></span></li>
           <li><svg width="30" height="20" aria-hidden="true"><path d="M1 10h28" style="stroke:var(--accent);stroke-width:2;stroke-dasharray:6 3"></path></svg>
             <span class="c-accent"><b>Lidar beam height</b><small id="lg-lidar">The robot&rsquo;s lidar looks out flat at this height.</small></span></li>
         </ul>
-      </section>
-      <section class="box" id="detail-box">
-        <h2>Selected <span id="sel-hint">tap an object</span></h2>
-        <div id="detail"><p class="empty">Tap an object on the plan or in the list below to see its size and what it means for the robot.</p></div>
+        <p class="foot" id="lg-acc">Heights come from a phone scan and are &plusmn;3&nbsp;cm.</p>
       </section>
       <section class="box">
         <h2>Obstacle schedule <span id="sched-count"></span></h2>
-        <ul class="schedule" id="schedule"></ul>
+        <div id="drops-wrap" hidden>
+          <h3 class="c-drop">Drop-offs &mdash; fall risk</h3>
+          <ul class="schedule" id="schedule-d"></ul>
+          <h3>Obstacles</h3>
+        </div>
+        <ul class="schedule" id="schedule"><li><p class="empty">Waiting for the map data&hellip;</p></li></ul>
+        <div id="unmeasured-wrap" hidden>
+          <h3>Unmeasured patches &mdash; check by eye</h3>
+          <ul class="schedule" id="schedule-u"></ul>
+        </div>
       </section>
     </aside>
   </main>
@@ -253,46 +318,99 @@ const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---------- state ---------- */
 const S = {
-  room: null, selected: null, view: 'plan', ruler: false, rulerPts: [],
+  room: null, H: 0.195, selected: null, order: [], view: 'plan', ruler: false, rulerPts: [],
+  cross: null, planFocus: false, kbd: false,
   cam: { x: 0, y: 0, s: 200 }, colors: {}, three: null,
 };
 
 /* ---------- helpers ---------- */
+// Nothing read from room.json goes into innerHTML: text uses textContent, and esc() guards the few SVG strings.
+const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const fin = Number.isFinite;
 const cm = (m) => Math.round(m * 100);
-const hcm = (m) => (m * 100).toFixed(1);  // heights: one decimal, so 13.8 cm never reads as the 14 cm beam
+const hc = (m) => (fin(m) ? `${cm(m)} cm` : 'unknown');          // object heights: whole cm, the scan is no better
+const lc = (m) => `${(m * 100).toFixed(1).replace(/\.0$/, '')} cm`; // the lidar height: the slider moves in 0.1 cm
 const fmtLen = (m) => m >= 1 ? `${m.toFixed(2)} m` : `${(m * 100).toFixed(m < 0.1 ? 1 : 0)} cm`;
-function category(o) {
-  // Worked out from the slider's height, not the report's lidar_sees, so
-  // trying a mounting height recolours everything.
-  const sees = o.height >= S.room.lidar_height;
-  if (o.trip_hazard && !sees) return 'hazard';
-  if (sees) return 'seen';
-  return 'other';
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else e.setAttribute(k, v);
+  }
+  for (const c of kids) if (c != null) e.append(c);
+  return e;
 }
+function markerEl(k, size = 16) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const s = document.createElementNS(NS, 'svg');
+  s.setAttribute('width', size); s.setAttribute('height', size); s.setAttribute('aria-hidden', 'true');
+  const u = document.createElementNS(NS, 'use'); u.setAttribute('href', `#m-${k}`);
+  s.append(u); return s;
+}
+
+/* categories, most dangerous first */
 const CAT = {
-  hazard: { name: 'Trip hazard, robot can’t see it', short: 'Hidden hazard' },
-  seen:   { name: 'Robot can see it', short: 'Visible to robot' },
-  other:  { name: 'Other object', short: 'Other' },
+  hidden:     { name: 'Trip hazard — robot can’t see it', short: 'Trip hazard, robot can’t see it', tok: 'hazard' },
+  unknown:    { name: 'Unknown — treat as hazard', short: 'Unknown — treat as hazard', tok: 'unknown' },
+  hit:        { name: 'Robot could hit it', short: 'Robot could hit it', tok: 'hit' },
+  marginal:   { name: 'Marginal — beam only grazes it', short: 'Marginal — beam only grazes it', tok: 'marginal' },
+  seen:       { name: 'Robot should see it', short: 'Robot should see it', tok: 'seen' },
+  drop:       { name: 'Drop-off — fall risk', short: 'Drop-off — fall risk', tok: 'drop' },
+  unmeasured: { name: 'Unmeasured patch', short: 'Unmeasured — check by eye', tok: 'unknown' },
 };
-const ORDER = { hazard: 0, seen: 1, other: 2 };
+const ORDER = { drop: -1, hidden: 0, unknown: 1, hit: 2, marginal: 3, seen: 4, unmeasured: 5 };
+const RANK = { sees: 0, marginal: 1, misses: 2 };
+
+// What a level beam at height H does to an object, from the heights where it would hit it.
+function rawVerdict(o, H) {
+  const [lo, hi] = o.beam, B = S.room.band;
+  if (lo + B <= H && H <= hi - B) return 'sees';
+  if (H < lo - B || H > hi + B) return 'misses';
+  return 'marginal';
+}
+function classify() {
+  const R = S.room, atReport = Math.abs(S.H - R.reportH) < 1e-9;
+  for (const o of R.obstacles) {
+    o.overruled = false;
+    if (!o.beam || !fin(o.height) || !o.center) { o.v = null; o.cat = 'unknown'; continue; }
+    let v = rawVerdict(o, S.H);
+    // the report's verdict and its own heights disagree: the data is inconsistent, so never better than
+    // marginal at any height, and at the report's height the report's verdict if that is worse
+    if (o.inconsistent) {
+      const floor = atReport && RANK[o.lidar] > RANK.marginal ? o.lidar : 'marginal';
+      if (RANK[floor] > RANK[v]) { v = floor; o.overruled = true; }
+    }
+    o.v = v;
+    o.cat = v === 'misses' ? (o.trip ? 'hidden' : 'hit') : v;
+    if (v === 'sees') o.cat = 'seen';
+    o.ambig = R.floor.ambiguous && o.cat === 'seen';   // the floor itself is in doubt, so no height is trusted
+    if (o.ambig) o.cat = 'marginal';
+  }
+}
+const itemName = (it) => it.isDrop ? `Drop-off ${it.label}` : it.isPatch ? `Unmeasured patch ${it.label}` : `${it.kind === 'step' ? 'Floor step' : 'Object'} ${it.label}`;
+const itemOutline = (it) => it.outline || (it.center ? rectAround(it) : null);   // null: no position at all
+
 function readColors() {
   const cs = getComputedStyle(document.documentElement);
-  for (const k of ['paper', 'sheet', 'floor', 'grid', 'grid-major', 'ink', 'ink-2', 'accent', 'hazard', 'seen', 'other'])
+  for (const k of ['paper', 'sheet', 'floor', 'grid', 'grid-major', 'ink', 'ink-2', 'accent', 'hazard', 'hit', 'marginal', 'seen', 'unknown', 'drop'])
     S.colors[k] = cs.getPropertyValue('--' + k).trim();
 }
-function note(kind, title, text) {
-  const d = document.createElement('div');
-  d.className = 'note' + (kind === 'error' ? ' error' : '');
-  const b = document.createElement('b'); b.textContent = title;
-  d.append(b, document.createTextNode(text));
-  $('notices').append(d);
+const notes = new Map();
+function note(kind, title, body, key = title) {
+  if (notes.has(key) && notes.get(key).isConnected) return notes.get(key);
+  const d = el('div', { class: 'note' + (kind === 'error' ? ' error' : ''), role: kind === 'error' ? 'alert' : 'status' });
+  const text = el('div', {}, el('b', { text: title }));
+  if (typeof body === 'string') text.append(document.createTextNode(body)); else text.append(body);
+  const x = el('button', { class: 'x', 'aria-label': `Dismiss: ${title}`, title: 'Dismiss', text: '×' });
+  x.addEventListener('click', () => d.remove());
+  d.append(text, x);
+  $('notices').append(d); notes.set(key, d);
   return d;
 }
 function scanDate(src) {
   const m = /(\d{1,2})_(\d{1,2})_(\d{4})/.exec(src || '');
   if (!m) return '';
   const d = new Date(+m[3], +m[1] - 1, +m[2]);
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  return isNaN(d) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 function pointInPoly(p, poly) {
   let inside = false;
@@ -307,48 +425,172 @@ function bbox(pts) {
   for (const [x, y] of pts) { a = [Math.min(a[0], x), Math.min(a[1], y)]; b = [Math.max(b[0], x), Math.max(b[1], y)]; }
   return { min: a, max: b };
 }
-
-/* ---------- data ---------- */
-async function loadRoom() {
-  try {
-    const r = await fetch('room.json', { cache: 'no-cache' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.json();
-  } catch (e1) {
-    try {
-      const r = await fetch('room.sample.json', { cache: 'no-cache' });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      note('info', 'Example data', ' room.json didn’t load, so the obstacles shown are approximate examples, not the measured ones.');
-      return j;
-    } catch (e2) {
-      note('error', 'Map data missing', ` room.json couldn’t be loaded (${e1.message}). Place room.json next to this page and reload.`);
-      return null;
-    }
-  }
+function rectAround(o) {
+  const [x, y] = o.center, [w, d] = o.size || [0.1, 0.1];
+  return [[x - w / 2, y - d / 2], [x + w / 2, y - d / 2], [x + w / 2, y + d / 2], [x - w / 2, y + d / 2]];
 }
 
-function summarise(room) {
-  const obs = room.obstacles || [];
-  const hidden = obs.filter((o) => category(o) === 'hazard').length;
-  const lid = cm(room.lidar_height);
-  const lidTxt = (room.lidar_height * 100).toFixed(1).replace(/\.0$/, '') + ' cm';
-  $('s-area').innerHTML = `${(room.floor?.area_m2 ?? 0).toFixed(1)} <small>m²</small>`;
+/* ---------- data: load and validate; anything odd is flagged, and doubt counts as danger ---------- */
+async function loadRoom() {
+  let r;
+  try { r = await fetch('room.json', { cache: 'no-cache' }); }
+  catch (e) { throw new Error(`room.json couldn’t be fetched (${e.message}). Place room.json next to this page and reload.`); }
+  if (!r.ok) throw new Error(`room.json couldn’t be loaded (HTTP ${r.status}). Place room.json next to this page and reload.`);
+  const txt = await r.text();
+  try { return JSON.parse(txt); }
+  catch (e) { throw new Error(`room.json isn’t valid JSON (${e.message}). Re-run the scan report to regenerate it.`); }
+}
+function normalise(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('room.json doesn’t contain a room report.');
+  const P = [];
+  const short = (v) => { const s = typeof v === 'string' ? v : JSON.stringify(v); return s.length > 24 ? s.slice(0, 24) + '…' : s; };
+  const num = (v, what, def = NaN, required = true) => {
+    if (v === undefined || v === null) { if (required) P.push(`${what} is missing`); return def; }
+    if (typeof v === 'number') { if (fin(v)) return v; P.push(`${what} isn’t a number`); return def; }
+    if (typeof v !== 'string') { P.push(`${what} isn’t a number (got ${Array.isArray(v) ? 'a list' : typeof v === 'boolean' ? 'true/false' : 'an object'})`); return def; }
+    const n = v.trim() ? Number(v) : NaN;
+    if (fin(n)) { P.push(`${what} was text (${short(v)}), read as ${n}`); return n; }
+    P.push(`${what} isn’t a number (${short(v)})`); return def;
+  };
+  let textCoords = 0;
+  const numLike = (q) => (typeof q === 'number' && fin(q)) || (typeof q === 'string' && q.trim() !== '' && fin(+q));
+  const pt = (v) => {
+    if (!Array.isArray(v) || v.length < 2 || !numLike(v[0]) || !numLike(v[1])) return null;
+    if (typeof v[0] === 'string' || typeof v[1] === 'string') textCoords++;
+    return [+v[0], +v[1]];
+  };
+  const poly = (v) => { if (!Array.isArray(v)) return null; const p = v.map(pt).filter(Boolean); return p.length >= 3 ? p : null; };
+
+  const R = { source: typeof raw.source === 'string' ? raw.source : '', problems: P };
+  let H = num(raw.lidar_height, 'Lidar height', NaN, false);   // a missing height gets its own note below
+  R.assumedH = !(H > 0 && H < 3);
+  if (R.assumedH) { if (fin(H)) P.push(`Lidar height ${H} m is not believable`); H = 0.195; }
+  R.reportH = H;
+  R.band = num(raw.marginal_band_m, 'Marginal band', 0.05, false);
+  if (!(R.band >= 0)) R.band = 0.05;
+  R.acc = num(raw.accuracy_m, 'Accuracy', 0.03, false);
+  if (!(R.acc > 0)) R.acc = 0.03;
+  R.tripMax = num(raw.trip_hazard_max, 'Trip-hazard limit', 0.30, false);
+  R.minObs = num(raw.min_obstacle, 'Smallest detectable height', 0.02, false);
+  if (!(R.minObs >= 0)) R.minObs = 0.02;
+
+  const f = raw.floor && typeof raw.floor === 'object' ? raw.floor : {};
+  R.floor = {
+    area: num(f.area_m2, 'Floor area', NaN, false),
+    outline: poly(f.outline),
+    y: num(f.gltf_floor_y, 'Floor level', 0, false),
+    ambiguous: f.ambiguous === true,
+    plane: Array.isArray(f.plane) && f.plane.length === 3 && f.plane.every(numLike) ? f.plane.map(Number) : null,
+  };
+  if (f.plane !== undefined && !R.floor.plane) P.push('Floor plane isn’t three numbers; the 3D view uses a flat floor');
+
+  const list = (v, what) => { if (v === undefined) return []; if (Array.isArray(v)) return v; P.push(`${what} isn’t a list`); return []; };
+  R.obstacles = [];
+  list(raw.obstacles, 'Obstacles').forEach((o, i) => {
+    if (!o || typeof o !== 'object') { P.push(`Obstacle ${i + 1} isn’t readable and was skipped`); return; }
+    const label = String(o.id ?? i + 1).slice(0, 40);
+    const kind = o.kind === 'step' ? 'step' : 'object';
+    const who = `${kind === 'step' ? 'Floor step' : 'Object'} ${label}`;
+    const outline = poly(o.outline);
+    const ob = outline ? bbox(outline) : null;
+    const center = pt(o.center) ?? (ob ? [(ob.min[0] + ob.max[0]) / 2, (ob.min[1] + ob.max[1]) / 2] : null);
+    if (!center) P.push(`${who} has no position, so it isn’t on the plan`);
+    let size = pt(o.size);
+    if (size && !(size[0] > 0 && size[1] > 0)) size = null;
+    size = size ?? (ob ? [ob.max[0] - ob.min[0], ob.max[1] - ob.min[1]] : null);
+    const height = num(o.height, `${who} height`);
+    let beam = null;
+    if (Array.isArray(o.beam_range) && o.beam_range.length === 2) {
+      const lo = num(o.beam_range[0], `${who} beam range`), hi = num(o.beam_range[1], `${who} beam range`);
+      if (fin(lo) && fin(hi) && lo <= hi) beam = [lo, hi]; else if (fin(lo) && fin(hi)) P.push(`${who} beam range is upside down`);
+      if (beam && lo < 0) P.push(`${who} beam range starts ${cm(-lo)} cm below the floor`);
+    } else P.push(`${who} has no beam range`);
+    let trip = true;
+    if (o.trip_hazard === false) trip = false;
+    else if (o.trip_hazard !== true) P.push(`${who} doesn’t say whether it’s a trip hazard, so it’s treated as one`);
+    const lidar = RANK[o.lidar] !== undefined ? o.lidar : null;
+    if (o.lidar !== undefined && !lidar) P.push(`${who} has an unreadable lidar verdict`);
+    R.obstacles.push({ key: 'o' + i, label, kind, center, size, outline, height, beam, trip, lidar });
+  });
+  const patches = (v, what) => list(v, what).map((o, i) => {
+    if (!o || typeof o !== 'object') { P.push(`${what} ${i + 1} isn’t readable and was skipped`); return null; }
+    const outline = poly(o.outline);
+    let center = pt(o.center), size = pt(o.size);
+    if (size && !(size[0] > 0 && size[1] > 0)) size = null;
+    if (!outline && !(center && size)) { P.push(`${what} ${i + 1} has no shape and was skipped`); return null; }
+    if (!center) { const b = bbox(outline); center = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2]; }
+    return { src: o, label: String(o.id ?? i + 1).slice(0, 40), center, size, outline, height: num(o.height, `${what} ${i + 1} height`, NaN, false) };
+  }).filter(Boolean);
+  R.walls = patches(raw.walls, 'Wall');
+  R.unmeasured = patches(raw.unmeasured, 'Unmeasured patch');
+  R.unmeasured.forEach((u, i) => { u.key = 'u' + i; u.isPatch = true; u.cat = 'unmeasured'; u.label = String(i + 1); });
+  R.hasDrops = raw.drops !== undefined;
+  if (!R.hasDrops) P.push('This report predates drop-off detection: steps down, sunken areas and stairwells were not looked for, so their absence here means nothing');
+  R.drops = patches(raw.drops, 'Drop-off');
+  R.drops.forEach((d, i) => {
+    const src = d.src;
+    d.key = 'd' + i; d.isDrop = true; d.cat = 'drop'; d.label = String(i + 1);
+    d.depth = Math.abs(num(src.depth, `Drop-off ${i + 1} depth`));
+  });
+
+  // where the report's own verdict and its heights disagree, say so; classify() trusts the more dangerous one
+  S.room = R;
+  for (const o of R.obstacles) {
+    if (!o.beam || !o.lidar) continue;
+    const v = rawVerdict(o, R.reportH);
+    const say = (x) => (x === 'sees' ? 'sees' : x === 'misses' ? 'misses' : 'grazes');
+    if (v !== o.lidar) { o.inconsistent = true; P.push(`${o.kind === 'step' ? 'Floor step' : 'Object'} ${o.label}: the report says the lidar ${say(o.lidar)} it, but its heights say ${say(v)}; it is shown as at least marginal at every height`); }
+  }
+  if (textCoords) P.push(`${textCoords} position${textCoords === 1 ? ' was' : 's were'} given as text and read as numbers`);
+  const all = [...(R.floor.outline || []), ...R.obstacles.filter((o) => o.center).flatMap(itemOutline), ...R.drops.flatMap(itemOutline), ...R.walls.flatMap(itemOutline), ...R.unmeasured.flatMap(itemOutline)];
+  const bb = raw.bounds && pt(raw.bounds.min) && pt(raw.bounds.max) ? { min: pt(raw.bounds.min), max: pt(raw.bounds.max) } : null;
+  R.bounds = bb ?? (all.length ? bbox(all) : { min: [-1, -1], max: [1, 1] });
+  R.extent = all.length ? bbox(all) : R.bounds;
+  return R;
+}
+
+function summarise() {
+  const R = S.room, obs = R.obstacles;
+  const n = (c) => obs.filter((o) => o.cat === c).length;
+  const hidden = n('hidden'), hit = n('hit'), marginal = n('marginal'), unknown = n('unknown'), miss = hidden + hit;
+  const trips = obs.filter((o) => o.trip).length;
+  const lid = lc(S.H) + (R.assumedH && Math.abs(S.H - R.reportH) < 1e-9 ? ' (assumed)' : '');
+  $('s-area').replaceChildren(fin(R.floor.area) ? `${R.floor.area.toFixed(1)} ` : '–', fin(R.floor.area) ? el('small', { text: 'm²' }) : '');
   $('s-count').textContent = obs.length;
-  $('s-hidden').innerHTML = `${hidden} <small>of ${obs.length}</small>`;
-  const date = scanDate(room.source);
-  if (date) $('eyebrow').textContent = `Floor survey \u00b7 phone LiDAR \u00b7 ${date}`;
-  $('s-src').textContent = (date ? date + ' · ' : '') + (room.source || 'unknown');
-  $('lg-lidar').textContent = `The robot’s lidar looks out flat at ${lidTxt} above the floor.`;
+  const drops = R.drops.length;
+  $('s-hidden').replaceChildren(`${miss} `, el('small', { text: `of ${obs.length}` }),
+    drops ? el('span', { class: 'plus', text: `+${drops} drop-off${drops === 1 ? '' : 's'}` }) : '',
+    unknown ? el('span', { class: 'plus', text: `+${unknown} unknown` }) : '');
+  $('banner').hidden = !R.floor.ambiguous;
+  $('lg-drop').hidden = !drops;
+  const date = scanDate(R.source);
+  $('eyebrow').textContent = `Floor survey · phone LiDAR${date ? ' · ' + date : ' scan'}`;
+  $('s-src').textContent = (date ? date + ' · ' : '') + (R.source || 'unknown');
+  $('lg-lidar').textContent = `The robot’s lidar looks out flat at ${lid} above the floor.`;
+  $('lg-acc').textContent = `Heights come from a phone scan and are ±${cm(R.acc)} cm. Objects lower than ${+(R.minObs * 100).toFixed(1)} cm can’t be detected. Within ${cm(R.band)} cm of an object’s top or bottom the beam only grazes it.${R.hasDrops ? '' : ' This scan wasn’t checked for drop-offs.'}`;
+  $('lg-unknown').hidden = !unknown;
+  const them = (k) => (k === 1 ? 'it' : 'them');
+  const noun = obs.some((o) => o.kind === 'step') ? 'thing' : 'object';   // floor steps aren't "objects"
+  const N = (k) => (k === 1 ? `One ${noun}` : `${k} ${noun}s`);
   let f;
-  if (!obs.length) f = 'No obstacles were found on this floor.';
-  else if (hidden === obs.length) f = `All ${obs.length} objects on this floor are shorter than the robot’s lidar beam at ${lidTxt}, so the robot can’t see any of them, and a person could trip on every one.`;
-  else if (hidden) f = `${hidden} of ${obs.length} objects sit below the robot’s lidar beam at ${lidTxt}. The robot can’t see those, and a person could trip on them.`;
-  else f = `Every trip hazard on this floor is tall enough for the lidar at ${lidTxt} to see.`;
-  const unmeasured = room.unmeasured?.length || 0;
-  if (unmeasured) f += ` ${unmeasured} more raised patch${unmeasured === 1 ? '' : 'es'} at the scan’s edge or partly hidden couldn’t be measured; check ${unmeasured === 1 ? 'it' : 'them'} by eye.`;
+  if (!obs.length) f = drops ? '' : 'No obstacles were found on this floor.';
+  else {
+    if (miss) {
+      f = `${N(miss)} ${miss === 1 ? 'sits' : 'sit'} where the lidar beam at ${lid} misses ${them(miss)}, so the robot can’t see ${them(miss)} and could drive into ${them(miss)}.`;
+      if (hidden) f += hidden === miss ? (miss === 1 ? ' It is also low enough for a person to trip on.' : ' All of them are low enough for a person to trip on.')
+        : ` ${hidden === 1 ? 'One of them is' : `${hidden} of them are`} low enough for a person to trip on.`;
+    } else if (!marginal && !unknown) f = `The lidar beam at ${lid} should see every ${noun} on this floor.`;
+    else f = `The lidar beam at ${lid} doesn’t clearly miss anything, but not everything is certain.`;
+    if (marginal) f += ` ${miss ? (marginal === 1 ? 'One more is' : `${marginal} more are`) : `${N(marginal)} ${marginal === 1 ? 'is' : 'are'}`} marginal: the beam only grazes ${them(marginal)}, so the robot may or may not see ${them(marginal)}.`;
+    if (unknown) f += ` ${N(unknown)} ${unknown === 1 ? 'has' : 'have'} missing measurements or contradictory data; treat ${them(unknown)} as a hazard.`;
+    if (!trips) f += ` None of the ${noun}s is low enough to be a trip hazard.`;
+  }
+  if (drops) f = `${drops === 1 ? 'One drop-off' : `${drops} drop-offs`}: the floor falls away, so the robot could drive off the edge and a person could fall. The lidar can’t see a drop at any height. ${f}`.trim();
+  if (R.floor.ambiguous) f = `The floor may be misidentified, so every height is in doubt. ${f}`;
+  const um = R.unmeasured.length;
+  if (um) f += ` ${um} raised patch${um === 1 ? '' : 'es'} where the scan ran out or was hidden couldn’t be measured; check ${them(um)} by eye.`;
   $('finding').textContent = f;
-  void lid;
+  $('finding-icon').setAttribute('href', drops ? '#m-drop' : miss || unknown ? '#m-hidden' : marginal || um ? '#m-marginal' : '#m-seen');
 }
 
 /* ---------- plan view ---------- */
@@ -357,23 +599,38 @@ const ctx = plan.getContext('2d');
 let W = 0, H = 0, dpr = 1;
 const toScreen = ([x, y]) => [W / 2 + (x - S.cam.x) * S.cam.s, H / 2 - (y - S.cam.y) * S.cam.s];
 const toWorld = (sx, sy) => [(sx - W / 2) / S.cam.s + S.cam.x, -(sy - H / 2) / S.cam.s + S.cam.y];
+// Screen geometry of the overlays is measured only when it can change (resize, view, ruler), never per frame:
+// reading it while the slider rebuilds the list forces a page layout on every step.
+let L = null;
+function measure() {
+  const pr = plan.getBoundingClientRect(), t = $('toolbar').getBoundingClientRect();
+  const boxes = [];
+  for (const id of ['readout', 'hint']) {
+    const e = $(id); if (e.hidden || !e.offsetWidth) continue;
+    const r = e.getBoundingClientRect(); boxes.push([r.left - pr.left - 4, r.top - pr.top - 4, r.width + 8, r.height + 8]);
+  }
+  L = { top: Math.max(48, t.bottom - pr.top + 6), boxes, roH: $('readout').hidden ? 0 : $('readout').offsetHeight };
+  S.font = getComputedStyle(document.documentElement).getPropertyValue('--font-data');
+}
+const topReserve = () => { if (!L) measure(); return L.top; };
 
 function resizePlan() {
   const r = plan.getBoundingClientRect();
+  if (!r.width) return;
   dpr = Math.min(window.devicePixelRatio || 1, 2);
   W = r.width; H = r.height;
   plan.width = Math.round(W * dpr); plan.height = Math.round(H * dpr);
+  measure(); makePatterns();
   draw();
 }
 function fit() {
-  if (!S.room) return;
-  const pts = [...(S.room.floor?.outline || []), ...S.room.obstacles.flatMap((o) => o.outline || [o.center])];
-  const b = pts.length ? bbox(pts) : { min: S.room.bounds.min, max: S.room.bounds.max };
-  const topPad = 60, pad = 40;
+  if (!S.room || !W) return;
+  const b = S.room.extent;
+  const top = topReserve() + 16, pad = 40;
   const w = b.max[0] - b.min[0] || 1, h = b.max[1] - b.min[1] || 1;
-  S.cam.s = Math.max(10, Math.min((W - pad * 2) / w, (H - topPad - pad * 2) / h));
+  S.cam.s = Math.max(10, Math.min((W - pad * 2) / w, (H - top - pad * 2) / h));
   S.cam.x = (b.min[0] + b.max[0]) / 2;
-  S.cam.y = (b.min[1] + b.max[1]) / 2 + (topPad / 2) / S.cam.s;
+  S.cam.y = (b.min[1] + b.max[1]) / 2 + (top / 2) / S.cam.s;
   draw();
 }
 function zoomAt(f, sx = W / 2, sy = H / 2) {
@@ -384,31 +641,47 @@ function zoomAt(f, sx = W / 2, sy = H / 2) {
   draw();
 }
 
-let hatchPattern = null;
-function makeHatch() {
-  const c = document.createElement('canvas'); const n = Math.round(7 * dpr);
-  c.width = c.height = n;
-  const g = c.getContext('2d');
-  g.strokeStyle = S.colors.hazard; g.lineWidth = 1.6 * dpr; g.globalAlpha = 0.85;
-  g.beginPath();
-  for (let k = -n; k <= n; k += n) { g.moveTo(k, n); g.lineTo(k + n, 0); }
-  g.stroke();
-  hatchPattern = ctx.createPattern(c, 'repeat');
+const patterns = {};
+function makePatterns() {
+  const mk = (color, cross) => {
+    const c = document.createElement('canvas'); const n = Math.round(7 * dpr);
+    c.width = c.height = n;
+    const g = c.getContext('2d');
+    g.strokeStyle = color; g.lineWidth = (cross ? 1.1 : 1.6) * dpr; g.globalAlpha = 0.85;
+    g.beginPath();
+    for (let k = -n; k <= n; k += n) { g.moveTo(k, n); g.lineTo(k + n, 0); if (cross) { g.moveTo(k, 0); g.lineTo(k + n, n); } }
+    g.stroke();
+    return ctx.createPattern(c, 'repeat');
+  };
+  patterns.hidden = mk(S.colors.hazard, false);
+  patterns.hit = mk(S.colors.hit, true);
+  const c = document.createElement('canvas'), n = Math.round(5 * dpr); c.width = c.height = n;
+  const g = c.getContext('2d'); g.fillStyle = S.colors.drop; g.globalAlpha = 0.85; g.fillRect(0, 0, n, Math.max(1, Math.round(1.6 * dpr)));
+  patterns.drop = ctx.createPattern(c, 'repeat');
 }
 
 function marker(kind, x, y, r) {
   const C = S.colors;
   ctx.save();
-  if (kind === 'hazard') {
+  if (kind === 'hidden') {
     ctx.fillStyle = C.hazard;
     ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r * 1.05, y + r * 0.8); ctx.lineTo(x - r * 1.05, y + r * 0.8); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = C.sheet; ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.moveTo(x, y - r * 0.35); ctx.lineTo(x, y + r * 0.2); ctx.moveTo(x, y + r * 0.42); ctx.lineTo(x, y + r * 0.58); ctx.stroke();
+  } else if (kind === 'hit') {
+    ctx.fillStyle = C.hit; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill();
+  } else if (kind === 'marginal') {
+    ctx.strokeStyle = C.marginal; ctx.fillStyle = C.marginal; ctx.lineWidth = 1.5;
+    ctx.strokeRect(x - r * 0.75, y - r * 0.75, r * 1.5, r * 1.5); ctx.fillRect(x - r * 0.75, y - r * 0.75, r * 0.75, r * 1.5);
   } else if (kind === 'seen') {
     ctx.fillStyle = C.seen; ctx.beginPath(); ctx.arc(x, y, r * 0.85, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = C.sheet; ctx.beginPath(); ctx.arc(x, y, r * 0.32, 0, Math.PI * 2); ctx.fill();
-  } else {
-    ctx.fillStyle = C.other; ctx.fillRect(x - r * 0.75, y - r * 0.75, r * 1.5, r * 1.5);
+  } else if (kind === 'drop') {
+    ctx.fillStyle = C.drop; ctx.fillRect(x - r, y - r, r * 2, r * 0.32);
+    ctx.beginPath(); ctx.moveTo(x - r * 0.9, y - r * 0.4); ctx.lineTo(x + r * 0.9, y - r * 0.4); ctx.lineTo(x, y + r); ctx.closePath(); ctx.fill();
+  } else if (kind === 'unknown') {
+    ctx.strokeStyle = C.unknown; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(x, y, r * 0.9, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = C.unknown; ctx.font = `700 ${Math.round(r * 1.5)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', x, y + 0.5);
   }
   ctx.restore();
 }
@@ -434,7 +707,7 @@ function dimLine(a, b, label, color, offsetPx = 0) {
   ctx.lineWidth = 1.6;
   for (const P of [A, B]) { ctx.beginPath(); ctx.moveTo(P[0] - (ux - nx) * t, P[1] - (uy - ny) * t); ctx.lineTo(P[0] + (ux - nx) * t, P[1] + (uy - ny) * t); ctx.stroke(); }
   const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2;
-  ctx.font = '500 11px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-data');
+  ctx.font = '500 11px ' + S.font;
   const tw = ctx.measureText(label).width;
   let ang = Math.atan2(dy, dx); if (ang > Math.PI / 2 || ang < -Math.PI / 2) ang += Math.PI;
   ctx.translate(mx, my); ctx.rotate(ang);
@@ -443,10 +716,35 @@ function dimLine(a, b, label, color, offsetPx = 0) {
   ctx.restore();
 }
 
+// Greedy label placement: each label tries a few spots around its object and takes the first that is clear.
+const overlaps = (a, b) => a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3];
+function findSpot(occ, w, h, cands, area, avoid = []) {
+  for (const c of cands) {
+    const r = [c[0], c[1], w, h];
+    if (r[0] < area[0] || r[1] < area[1] || r[0] + w > area[2] || r[1] + h > area[3]) continue;
+    const pad = [r[0] - 2, r[1] - 2, w + 4, h + 4];
+    if (occ.some((o) => overlaps(pad, o)) || avoid.some((o) => overlaps(pad, o))) continue;
+    occ.push(r); return c;
+  }
+  return null;
+}
+function cornerCands(b, w, h, gap = 12) {
+  // b: screen bbox [x0, y0, x1, y1]; returns [tagX, tagY, anchorX, anchorY]
+  const [x0, y0, x1, y1] = b, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  return [
+    [x1 + gap, y0 - gap - h, x1, y0], [x0 - gap - w, y0 - gap - h, x0, y0],
+    [x1 + gap, y1 + gap, x1, y1], [x0 - gap - w, y1 + gap, x0, y1],
+    [x1 + gap, cy - h / 2, x1, cy], [x0 - gap - w, cy - h / 2, x0, cy],
+    [cx - w / 2, y0 - gap - h, cx, y0], [cx - w / 2, y1 + gap, cx, y1],
+    [x1 + gap * 3, y0 - gap * 3 - h, x1, y0], [x0 - gap * 3 - w, y1 + gap * 3, x0, y1],
+  ];
+}
+
 function draw() {
   if (!W) return;
   const C = S.colors;
-  const fontData = getComputedStyle(document.documentElement).getPropertyValue('--font-data');
+  if (!L) measure();
+  const fontData = S.font;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = C.paper; ctx.fillRect(0, 0, W, H);
 
@@ -463,72 +761,120 @@ function draw() {
   lines(0.5, C['grid-major'], 0.6);
   lines(1, C['grid-major'], 1.4);
 
-  if (!S.room) return;
-  const R = S.room;
+  // reserved screen areas that labels must stay clear of
+  const top = topReserve();
+  const occ = [[0, 0, W, top]];
+  const axes = axesBox();
+  occ.push([axes.ox - 10, axes.oy - axes.L - 18, axes.L + 34, axes.L + 26]);
+  const sb = scaleBox();
+  occ.push([sb.x - 6, sb.by - 16, sb.seg * 4 + 30, 26]);
+  occ.push(...L.boxes);
 
-  // floor
-  if (R.floor?.outline?.length) {
-    polyPath(R.floor.outline);
-    ctx.fillStyle = C.floor; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
-    ctx.strokeStyle = C.ink; ctx.lineWidth = 1.5; ctx.setLineDash([9, 4, 2, 4]); ctx.stroke(); ctx.setLineDash([]);
-    // edge label on the longest top edge
-    const top = R.floor.outline.reduce((a, q) => (q[1] > a[1] ? q : a));
-    const [lx, ly] = toScreen(top);
-    ctx.font = `500 10px ${fontData}`; ctx.fillStyle = C['ink-2']; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText('EDGE OF SCAN', lx + 10, ly - 4);
+  const R = S.room;
+  if (R) {
+    // floor
+    if (R.floor.outline) {
+      polyPath(R.floor.outline);
+      ctx.fillStyle = C.floor; ctx.globalAlpha = 0.85; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 1.5; ctx.setLineDash([9, 4, 2, 4]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    // drop-offs: lined fill and a heavy double edge, the strongest mark on the sheet
+    for (const d of R.drops) {
+      polyPath(itemOutline(d));
+      ctx.fillStyle = patterns.drop; ctx.fill();
+      ctx.strokeStyle = C.drop; ctx.lineWidth = 4; ctx.stroke();
+      ctx.strokeStyle = C.sheet; ctx.lineWidth = 1.2; ctx.stroke();
+    }
+    // walls: solid ink
+    for (const w of R.walls) {
+      polyPath(itemOutline(w));
+      ctx.fillStyle = C.ink; ctx.globalAlpha = 0.15; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = C.ink; ctx.lineWidth = 2; ctx.stroke();
+    }
+    // unmeasured: grey dashed
+    for (const u of R.unmeasured) {
+      polyPath(itemOutline(u));
+      ctx.strokeStyle = C.unknown; ctx.lineWidth = u.key === S.selected ? 2.4 : 1.5; ctx.setLineDash([5, 4]); ctx.stroke(); ctx.setLineDash([]);
+    }
   }
 
-  // metre labels along the left and bottom of the visible grid
+  // metre labels along the top and left of the visible grid
   ctx.font = `500 10px ${fontData}`; ctx.fillStyle = C['ink-2'];
-  const stepLbl = S.cam.s > 400 ? 0.5 : 1;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  for (let x = Math.ceil(x0 / stepLbl) * stepLbl; x <= x1; x += stepLbl) { const sx = toScreen([x, 0])[0]; if (sx > 40 && sx < W - 40) ctx.fillText(`${+x.toFixed(1)} m`, sx, 66); }
+  const stepLbl = S.cam.s > 400 ? 0.5 : S.cam.s < 60 ? 2 : 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let x = Math.ceil(x0 / stepLbl) * stepLbl; x <= x1; x += stepLbl) {
+    const sx = toScreen([x, 0])[0], t = `${+x.toFixed(1)} m`, w = ctx.measureText(t).width;
+    if (sx > 50 && sx < W - 40) { ctx.fillText(t, sx, top + 2); occ.push([sx - w / 2 - 2, top, w + 4, 16]); }
+  }
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  for (let y = Math.ceil(y0 / stepLbl) * stepLbl; y <= y1; y += stepLbl) { const sy = toScreen([0, y])[1]; if (sy > 80 && sy < H - 50) ctx.fillText(`${+y.toFixed(1)} m`, 6, sy - 7); }
+  for (let y = Math.ceil(y0 / stepLbl) * stepLbl; y <= y1; y += stepLbl) {
+    const sy = toScreen([0, y])[1], t = `${+y.toFixed(1)} m`, w = ctx.measureText(t).width;
+    const r = [4, sy - 14, w + 4, 14];
+    if (sy > top + 26 && sy < H - 20 && !occ.some((o) => overlaps(r, o))) { ctx.fillText(t, 6, sy - 7); occ.push(r); }
+  }
+  if (!R) { drawScaleBar(fontData); drawAxes(fontData); return; }
 
-  // obstacles: draw quiet categories first so hazards sit on top
-  const obs = [...R.obstacles].sort((a, b) => ORDER[category(b)] - ORDER[category(a)]);
+  // obstacles: quiet categories first so the dangerous ones sit on top
+  const obs = R.obstacles.filter((o) => o.center).sort((a, b) => ORDER[b.cat] - ORDER[a.cat]);
   for (const o of obs) {
-    const k = category(o), col = C[k];
-    const pts = o.outline?.length ? o.outline : rectAround(o);
-    polyPath(pts);
-    if (k === 'hazard') { ctx.fillStyle = hatchPattern; ctx.fill(); }
+    const k = o.cat, col = C[CAT[k].tok];
+    polyPath(itemOutline(o));
+    if (k === 'hidden' || k === 'hit') { ctx.fillStyle = patterns[k]; ctx.fill(); }
     else if (k === 'seen') { ctx.fillStyle = col; ctx.globalAlpha = 0.22; ctx.fill(); ctx.globalAlpha = 1; }
-    ctx.strokeStyle = col; ctx.lineWidth = k === 'hazard' ? 2.4 : 2;
-    if (k === 'other') ctx.setLineDash([2, 3]);
+    ctx.strokeStyle = col; ctx.lineWidth = k === 'hidden' ? 2.4 : 2;
+    if (k === 'marginal') ctx.setLineDash([2, 3]);
+    if (k === 'unknown') ctx.setLineDash([6, 3]);
     ctx.stroke(); ctx.setLineDash([]);
   }
-  // labels: leader + tag with marker and height
+
+  // labels: selected first, then most dangerous; any that can't find a clear spot are skipped
+  const area = [2, top, W - 2, H - 2];
+  const labelled = [...obs].reverse();
+  const selItem = findItem(S.selected);
+  const queue = [...(selItem && selItem.center ? [selItem] : []), ...R.drops.filter((d) => d !== selItem), ...labelled.filter((o) => o !== selItem), ...R.unmeasured.filter((u) => u !== selItem)];
+  for (const o of [...R.obstacles, ...R.unmeasured, ...R.drops]) o._tag = null;
+  // unmeasured-patch tags must not cover any obstacle's shape
+  const shapes = obs.map((o) => { const b = bbox(itemOutline(o)), a = toScreen([b.min[0], b.max[1]]), c = toScreen([b.max[0], b.min[1]]); return [a[0] - 3, a[1] - 3, c[0] - a[0] + 6, c[1] - a[1] + 6]; });
   ctx.font = `600 11px ${fontData}`;
-  for (const o of obs) {
-    const k = category(o), col = C[k];
-    const pts = o.outline?.length ? o.outline : rectAround(o);
-    const b = bbox(pts);
-    const [cx, cy] = toScreen(o.center);
-    const rx = (b.max[0] - b.min[0]) / 2 * S.cam.s * 0.72;
-    const ax = cx + rx, ay = cy - rx;          // point on the outline at 45 degrees
-    const tx = ax + 14, ty = ay - 14;
-    const label = `${hcm(o.height)} cm`;
-    const tw = ctx.measureText(label).width + 26;
+  for (const o of queue) {
+    const patch = !!o.isPatch, k = patch ? 'unmeasured' : o.cat, col = C[CAT[k].tok];
+    const b = bbox(itemOutline(o));
+    const p0 = toScreen([b.min[0], b.max[1]]), p1 = toScreen([b.max[0], b.min[1]]);
+    if (p1[0] < 0 || p0[0] > W || p1[1] < top || p0[1] > H) continue;
+    const label = patch ? 'unmeasured' : o.isDrop ? `drop ${fin(o.depth) ? cm(o.depth) + ' cm' : '?'}` : k === 'unknown' ? 'height ?' : hc(o.height);
+    const tw = ctx.measureText(label).width + (patch ? 10 : 26), th = 18;
+    const spot = findSpot(occ, tw, th, cornerCands([p0[0], p0[1], p1[0], p1[1]], tw, th), area, patch ? shapes : []);
+    if (!spot) continue;
+    const [tx, ty, ax, ay] = spot;
+    const lx = Math.max(tx, Math.min(tx + tw, ax)), ly = Math.max(ty, Math.min(ty + th, ay));
     ctx.strokeStyle = col; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(tx, ty); ctx.lineTo(tx + 4, ty); ctx.stroke();
-    ctx.fillStyle = C.sheet; ctx.fillRect(tx + 4, ty - 9, tw, 18);
-    ctx.strokeRect(tx + 4.5, ty - 8.5, tw - 1, 17);
-    marker(k, tx + 13, ty, 5.5);
-    ctx.fillStyle = C.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, tx + 22, ty + 0.5);
-    o._tag = [tx + 4, ty - 9, tw, 18];
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
+    ctx.fillStyle = C.sheet; ctx.fillRect(tx, ty, tw, th);
+    if (patch) ctx.setLineDash([3, 2]);
+    ctx.strokeStyle = o.key === S.selected ? C.accent : col; ctx.lineWidth = o.key === S.selected ? 2 : 1.2;
+    ctx.strokeRect(tx + 0.5, ty + 0.5, tw - 1, th - 1); ctx.setLineDash([]);
+    if (!patch) marker(k, tx + 9, ty + th / 2, 5.5);
+    ctx.fillStyle = patch ? C.unknown : C.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, tx + (patch ? 5 : 18), ty + th / 2 + 0.5);
+    o._tag = [tx, ty, tw, th];
+  }
+  // "EDGE OF SCAN" goes where it fits near the far edge of the floor, clear of everything above
+  if (R.floor.outline) {
+    ctx.font = `500 10px ${fontData}`;
+    const t = 'EDGE OF SCAN', w = ctx.measureText(t).width + 4, h = 13;
+    const pts = [...R.floor.outline].sort((a, b) => b[1] - a[1]).slice(0, 3).map(toScreen);
+    const cands = pts.flatMap(([x, y]) => [[x + 10, y - 4 - h], [x - w - 10, y - 4 - h], [x + 10, y + 4], [x - w / 2, y + 6]]);
+    const spot = findSpot(occ, w, h, cands, area);
+    if (spot) { ctx.fillStyle = C['ink-2']; ctx.textAlign = 'left'; ctx.textBaseline = 'top'; ctx.fillText(t, spot[0] + 2, spot[1] + 1); }
   }
 
   // selection: ring and W x D dimensions
-  const sel = R.obstacles.find((o) => o.id === S.selected);
-  if (sel) {
-    const pts = sel.outline?.length ? sel.outline : rectAround(sel);
-    const b = bbox(pts);
+  if (selItem && selItem.center) {
+    const b = bbox(itemOutline(selItem));
     const p0 = toScreen([b.min[0], b.min[1]]), p1 = toScreen([b.max[0], b.max[1]]);
     ctx.strokeStyle = C.accent; ctx.lineWidth = 1.5; ctx.setLineDash([4, 3]);
     ctx.strokeRect(p0[0] - 6, p1[1] - 6, p1[0] - p0[0] + 12, p0[1] - p1[1] + 12); ctx.setLineDash([]);
-    const w = sel.size?.[0] ?? b.max[0] - b.min[0], d = sel.size?.[1] ?? b.max[1] - b.min[1];
+    const w = selItem.size?.[0] ?? b.max[0] - b.min[0], d = selItem.size?.[1] ?? b.max[1] - b.min[1];
     if (p1[0] - p0[0] > 30) {   // dimension callouts only once the object is big enough on screen
       dimLine([p0[0], p1[1]], [p1[0], p1[1]], `${cm(w)}`, C.accent, -18);
       dimLine([p0[0], p0[1]], [p0[0], p1[1]], `${cm(d)}`, C.accent, -18);
@@ -536,36 +882,42 @@ function draw() {
   }
 
   // ruler
-  if (S.rulerPts.length) {
-    const [a, b] = S.rulerPts.map(toScreen);
+  const pts = [...S.rulerPts];
+  const showCross = S.ruler && S.planFocus && S.kbd && S.cross && S.view === 'plan';
+  if (pts.length) {
+    const [a, b] = pts.map(toScreen);
     ctx.fillStyle = C.accent;
     for (const P of [a, b].filter(Boolean)) { ctx.beginPath(); ctx.arc(P[0], P[1], 4, 0, Math.PI * 2); ctx.fill(); }
-    if (b) dimLine(a, b, fmtLen(Math.hypot(S.rulerPts[1][0] - S.rulerPts[0][0], S.rulerPts[1][1] - S.rulerPts[0][1])), C.accent, 0);
+    if (b) dimLine(a, b, fmtLen(Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1])), C.accent, 0);
+    else if (showCross) { ctx.strokeStyle = C.accent; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...toScreen(S.cross)); ctx.stroke(); ctx.setLineDash([]); }
+  }
+  if (showCross) {
+    const [cx, cy] = toScreen(S.cross);
+    ctx.strokeStyle = C.accent; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx - 14, cy); ctx.lineTo(cx - 4, cy); ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 14, cy);
+    ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy - 4); ctx.moveTo(cx, cy + 4); ctx.lineTo(cx, cy + 14); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI * 2); ctx.stroke();
   }
 
   drawScaleBar(fontData);
   drawAxes(fontData);
 }
-function rectAround(o) {
-  const [x, y] = o.center, [w, d] = o.size || [0.1, 0.1];
-  return [[x - w / 2, y - d / 2], [x + w / 2, y - d / 2], [x + w / 2, y + d / 2], [x - w / 2, y + d / 2]];
-}
-function drawScaleBar(fontData) {
-  const C = S.colors;
+function scaleBox() {
   const step = niceStep(110 / S.cam.s / 4);
   const seg = step * S.cam.s, x = 14, y = H - 22;
-  const showFrom = S.view === 'plan' && S.ruler ? 0 : 1;
-  if (!showFrom && S.rulerPts.length >= 0) { /* readout occupies bottom-left */ }
-  const by = S.ruler ? y - 44 : y;
-  for (let i = 0; i < 4; i++) {
-    ctx.fillStyle = i % 2 ? C.sheet : C.ink; ctx.fillRect(x + i * seg, by, seg, 6);
-  }
+  const by = L && L.roH ? y - L.roH - 6 : y;
+  return { step, seg, x, by };
+}
+function drawScaleBar(fontData) {
+  const C = S.colors, { step, seg, x, by } = scaleBox();
+  for (let i = 0; i < 4; i++) { ctx.fillStyle = i % 2 ? C.sheet : C.ink; ctx.fillRect(x + i * seg, by, seg, 6); }
   ctx.strokeStyle = C.ink; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, by + 0.5, seg * 4, 6);
   ctx.font = `500 10px ${fontData}`; ctx.fillStyle = C.ink; ctx.textBaseline = 'bottom'; ctx.textAlign = 'center';
-  for (let i = 0; i <= 4; i += 2) ctx.fillText(i === 0 ? '0' : fmtLen(step * i).replace(' ', ' '), x + i * seg, by - 3);
+  for (let i = 0; i <= 4; i += 2) ctx.fillText(i === 0 ? '0' : fmtLen(step * i), x + i * seg, by - 3);
 }
+function axesBox() { return { ox: W - 52, oy: H - (window.innerWidth > 860 ? 40 : 18), L: 26 }; }
 function drawAxes(fontData) {
-  const C = S.colors, ox = W - 52, oy = H - (window.innerWidth > 860 ? 40 : 18), L = 26;
+  const C = S.colors, { ox, oy, L } = axesBox();
   ctx.strokeStyle = C.ink; ctx.fillStyle = C.ink; ctx.lineWidth = 1.5;
   const arrow = (x2, y2, ang) => {
     ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(x2, y2); ctx.stroke();
@@ -585,6 +937,7 @@ function drawAxes(fontData) {
 const pointers = new Map();
 let gesture = null;
 plan.addEventListener('pointerdown', (e) => {
+  if (S.kbd) { S.kbd = false; draw(); }
   plan.setPointerCapture(e.pointerId);
   pointers.set(e.pointerId, [e.offsetX, e.offsetY]);
   gesture = { moved: 0, start: [e.offsetX, e.offsetY], last: pinchState() };
@@ -622,118 +975,203 @@ plan.addEventListener('wheel', (e) => {
   e.preventDefault();
   zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e.offsetX, e.offsetY);
 }, { passive: false });
-plan.addEventListener('keydown', (e) => {
-  const step = 40 / S.cam.s;
-  const map = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
-  if (map[e.key]) { S.cam.x += map[e.key][0]; S.cam.y += map[e.key][1]; draw(); e.preventDefault(); }
-  else if (e.key === '+' || e.key === '=') zoomAt(1.25);
-  else if (e.key === '-') zoomAt(0.8);
-  else if (e.key === 'Escape') { select(null); }
+plan.addEventListener('focus', () => {
+  S.planFocus = true;
+  if (plan.matches(':focus-visible')) S.kbd = true;
+  if (S.ruler && !S.cross) S.cross = toWorld(W / 2, H / 2);
+  draw(); updateReadout();
 });
+plan.addEventListener('blur', () => { S.planFocus = false; draw(); updateReadout(); });
+function keepInView(p, margin = 40) {
+  const [sx, sy] = toScreen(p), top = topReserve();
+  if (sx < margin) S.cam.x -= (margin - sx) / S.cam.s;
+  if (sx > W - margin) S.cam.x += (sx - W + margin) / S.cam.s;
+  if (sy < top + margin) S.cam.y += (top + margin - sy) / S.cam.s;
+  if (sy > H - margin) S.cam.y -= (sy - H + margin) / S.cam.s;
+}
+plan.addEventListener('keydown', (e) => {
+  S.kbd = true;
+  const dirs = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  if (dirs[e.key]) {
+    e.preventDefault();
+    if (S.ruler) {          // move the crosshair: 10 px a press, 1 cm with Shift
+      if (!S.cross) S.cross = toWorld(W / 2, H / 2);
+      const st = e.shiftKey ? 0.01 : 10 / S.cam.s;
+      S.cross = [S.cross[0] + dirs[e.key][0] * st, S.cross[1] + dirs[e.key][1] * st];
+      keepInView(S.cross); updateReadout(); draw();
+    } else { const st = 40 / S.cam.s; S.cam.x += dirs[e.key][0] * st; S.cam.y += dirs[e.key][1] * st; draw(); }
+  } else if ((e.key === 'Enter' || e.key === ' ') && S.ruler) {
+    e.preventDefault();
+    if (!S.cross) S.cross = toWorld(W / 2, H / 2);
+    placeRulerPoint([...S.cross]);
+  } else if (e.key === ']' || e.key === '[') {
+    e.preventDefault(); cycle(e.key === ']' ? 1 : -1);
+  } else if (e.key === '+' || e.key === '=') zoomAt(1.25);
+  else if (e.key === '-') zoomAt(0.8);
+  else if (e.key === 'Escape') { if (S.ruler && S.rulerPts.length) { S.rulerPts = []; updateReadout(); draw(); } else select(null); }
+});
+function cycle(dir) {
+  const keys = S.order.filter((k) => findItem(k)?.center);
+  if (!keys.length) return;
+  const i = keys.indexOf(S.selected);
+  const next = keys[i < 0 ? (dir > 0 ? 0 : keys.length - 1) : (i + dir + keys.length) % keys.length];
+  const it = findItem(next);
+  keepInView(it.center, 80);
+  select(next);
+}
+function placeRulerPoint(w) {
+  if (S.rulerPts.length >= 2) S.rulerPts = [];
+  S.rulerPts.push(w);
+  updateReadout(); draw();
+}
+function findItem(key) {
+  if (!S.room || key == null) return null;
+  return ({ u: S.room.unmeasured, d: S.room.drops }[key[0]] || S.room.obstacles).find((o) => o.key === key) || null;
+}
 function tap(sx, sy) {
   if (!S.room) return;
   const w = toWorld(sx, sy);
-  if (S.ruler) {
-    if (S.rulerPts.length >= 2) S.rulerPts = [];
-    S.rulerPts.push(w);
-    updateReadout(); draw(); return;
-  }
-  let hit = null;
-  for (const o of S.room.obstacles) {
-    const t = o._tag;
-    if (t && sx >= t[0] && sx <= t[0] + t[2] && sy >= t[1] && sy <= t[1] + t[3]) { hit = o; break; }
-  }
-  if (!hit) hit = S.room.obstacles.find((o) => pointInPoly(w, o.outline?.length ? o.outline : rectAround(o)));
+  if (S.ruler) { S.cross = w; placeRulerPoint(w); return; }
+  const items = [...S.room.obstacles.filter((o) => o.center), ...S.room.unmeasured, ...S.room.drops];
+  let hit = items.find((o) => { const t = o._tag; return t && sx >= t[0] && sx <= t[0] + t[2] && sy >= t[1] && sy <= t[1] + t[3]; });
+  if (!hit) hit = S.room.obstacles.filter((o) => o.center).sort((a, b) => ORDER[a.cat] - ORDER[b.cat]).find((o) => pointInPoly(w, itemOutline(o)));
   if (!hit) {
     let best = 18;
-    for (const o of S.room.obstacles) { const [cx, cy] = toScreen(o.center); const d = Math.hypot(cx - sx, cy - sy); if (d < best) { best = d; hit = o; } }
+    for (const o of S.room.obstacles.filter((q) => q.center)) { const [cx, cy] = toScreen(o.center); const d = Math.hypot(cx - sx, cy - sy); if (d < best) { best = d; hit = o; } }
   }
-  select(hit ? hit.id : null);
+  if (!hit) hit = S.room.drops.find((d) => pointInPoly(w, itemOutline(d)));
+  if (!hit) hit = S.room.unmeasured.find((u) => pointInPoly(w, itemOutline(u)));
+  select(hit ? hit.key : null);
 }
 function updateReadout() {
   const r = $('readout'), t = $('readout-text');
+  const was = r.hidden;
   r.hidden = !(S.ruler && S.view === 'plan');
-  const p = S.rulerPts;
-  if (p.length < 2) { t.textContent = p.length ? 'Tap the second point' : 'Ruler: tap the first point'; return; }
+  if (was !== r.hidden) requestAnimationFrame(() => { measure(); draw(); });
+  const p = S.rulerPts, kb = S.planFocus && S.kbd;
+  if (p.length < 2) {
+    if (p.length && kb && S.cross) {
+      const d = Math.hypot(S.cross[0] - p[0][0], S.cross[1] - p[0][1]);
+      t.replaceChildren(el('strong', { text: d >= 1 ? `${d.toFixed(2)} m` : `${(d * 100).toFixed(1)} cm` }), ' · Enter places the second point');
+    } else t.textContent = p.length ? (kb ? 'Arrows move, Enter places the second point' : 'Tap the second point') : (kb ? 'Ruler: arrows move the crosshair, Enter places a point' : 'Ruler: tap the first point');
+    return;
+  }
   const d = Math.hypot(p[1][0] - p[0][0], p[1][1] - p[0][1]);
-  t.innerHTML = '';
-  const s = document.createElement('strong'); s.textContent = d >= 1 ? `${d.toFixed(2)} m` : `${(d * 100).toFixed(1)} cm`;
-  t.append(s, document.createTextNode(d >= 1 ? ` · ${Math.round(d * 100)} cm` : ''));
+  t.replaceChildren(el('strong', { text: d >= 1 ? `${d.toFixed(2)} m` : `${(d * 100).toFixed(1)} cm` }), d >= 1 ? ` · ${Math.round(d * 100)} cm` : '');
 }
 
 /* ---------- panel ---------- */
-function markerSvg(k, size = 16) {
-  return `<svg width="${size}" height="${size}" aria-hidden="true"><use href="#m-${k}"></use></svg>`;
+function rowFor(it) {
+  const k = it.isPatch ? 'unmeasured' : it.cat;
+  const b = el('button', { class: 'row', 'aria-pressed': String(it.key === S.selected), 'data-key': it.key });
+  const right = it.isDrop ? (fin(it.depth) ? `${cm(it.depth)} cm down` : 'depth ?') : it.isPatch ? (fin(it.height) ? `~${hc(it.height)}` : '') : it.beam && fin(it.height) && it.beam[0] > 0.005 ? `${cm(it.beam[0])}–${cm(it.beam[1])} cm` : hc(it.height);
+  b.append(markerEl(k), el('span', {}, itemName(it), el('small', { class: `c-${k}`, text: CAT[k].short + (!it.isPatch && !it.isDrop && !it.center ? ' · position missing' : '') })), el('span', { class: 'h', text: right }));
+  b.addEventListener('click', () => select(it.key === S.selected ? null : it.key));
+  return el('li', {}, b);
 }
+let schedSig = '';
 function renderSchedule() {
-  const list = $('schedule'); list.innerHTML = '';
-  const obs = [...S.room.obstacles].sort((a, b) => ORDER[category(a)] - ORDER[category(b)] || b.height - a.height);
+  const R = S.room;
+  const obs = [...R.obstacles].sort((a, b) => ORDER[a.cat] - ORDER[b.cat] || (b.height || 0) - (a.height || 0));
+  const sig = obs.map((o) => o.key + o.cat).join() + '|' + R.unmeasured.length + '|' + R.drops.length;
+  if (sig === schedSig) return;   // nothing in the list changed: keep the rows (and their focus)
+  schedSig = sig;
+  S.order = [...R.drops.map((d) => d.key), ...obs.map((o) => o.key), ...R.unmeasured.map((u) => u.key)];
+  $('drops-wrap').hidden = !R.drops.length;
+  $('schedule-d').replaceChildren(...R.drops.map(rowFor));
   $('sched-count').textContent = `${obs.length} item${obs.length === 1 ? '' : 's'}`;
-  if (!obs.length) { list.innerHTML = '<li><p class="empty">No obstacles in this scan.</p></li>'; return; }
-  for (const o of obs) {
-    const k = category(o);
-    const li = document.createElement('li');
-    const b = document.createElement('button');
-    b.className = 'row'; b.id = `row-${o.id}`; b.setAttribute('aria-pressed', String(o.id === S.selected));
-    b.innerHTML = `${markerSvg(k)}<span>Object ${o.id}<small class="c-${k}">${CAT[k].short}</small></span><span class="h">${hcm(o.height)} cm</span>`;
-    b.addEventListener('click', () => select(o.id === S.selected ? null : o.id));
-    li.append(b); list.append(li);
-  }
+  $('schedule').replaceChildren(...(obs.length ? obs.map(rowFor) : [el('li', {}, el('p', { class: 'empty', text: 'No obstacles in this scan.' }))]));
+  $('unmeasured-wrap').hidden = !R.unmeasured.length;
+  $('schedule-u').replaceChildren(...R.unmeasured.map(rowFor));
 }
-function explain(o, R) {
-  const k = category(o), h = hcm(o.height), lid = (R.lidar_height * 100).toFixed(1).replace(/\.0$/, '');
-  const gap = Math.abs(R.lidar_height - o.height) * 100;
-  if (k === 'hazard') return `At ${h} cm tall, this sits ${gap.toFixed(1)} cm under the lidar beam (${lid} cm). The robot’s lidar looks straight over it, so the robot could drive into it, and a person walking past could trip on it.`;
-  if (k === 'seen' && o.trip_hazard) return `At ${h} cm it crosses the lidar beam (${lid} cm), so the robot will steer around it. It is still low enough for a person to trip on.`;
-  if (k === 'seen') return `At ${h} cm it rises above the lidar beam (${lid} cm), so the robot sees it and will steer around it.`;
-  return `This object is not marked as a trip hazard, and the lidar is not expected to see it. Check it by eye before a run.`;
+function explain(o) {
+  const lid = lc(S.H), k = o.cat;
+  const thing = o.kind === 'step' ? 'this step' : 'it';
+  const trip = o.trip ? ` It is low enough for a person to trip on.` : '';
+  if (k === 'unknown' && !o.center) return `The scan report doesn’t say where this is, so it isn’t on the plan and this page can’t judge it. Treat it as a hazard and find it by eye.`;
+  if (k === 'unknown') return `Its height${o.beam ? '' : ', or the heights where the beam would hit it,'} ${o.beam ? 'is' : 'are'} missing from the scan report, so this page can’t tell whether the lidar sees ${thing}. Treat it as a hazard and check it by eye.`;
+  const [lo, hi] = o.beam, span = lo > 0.005 ? `it sits ${cm(lo)}–${cm(hi)} cm above the floor` : `it is ${cm(hi)} cm tall`;
+  let s;
+  if (o.ambig) {
+    s = `Going by its heights (${span}), the beam at ${lid} would cross ${thing}. But the floor may be misidentified in this scan, so those heights could be wrong; this page counts it as marginal: the robot may or may not see ${thing}.${trip}`;
+  } else if (o.overruled) {
+    const raw = rawVerdict(o, S.H);
+    s = `Going by its heights alone (${span}), the beam at ${lid} ${raw === 'sees' ? 'would cross' : raw === 'misses' ? 'would miss' : 'would only graze'} ${thing}. ` +
+      (k === 'marginal' ? `This page counts it as marginal instead: the robot may or may not see ${thing}. Treat it as a hazard.`
+        : `This page counts it as missed instead: the robot can’t see ${thing} and could ${k === 'hit' ? 'hit' : 'drive into'} ${thing}.`) + (k === 'hit' ? '' : trip);
+  } else if (k === 'hidden' || k === 'hit') {
+    const where = S.H > hi ? 'passes over' : S.H < lo ? 'passes under' : 'misses';
+    s = `The lidar beam at ${lid} ${where} ${thing} (${span}), so the robot can’t see ${thing} and could ${k === 'hit' ? 'hit' : 'drive into'} ${thing}.`;
+    s += k === 'hidden' ? trip : ' It isn’t a trip hazard, but the robot needs some other way to notice it.';
+  } else if (k === 'marginal') s = `The beam at ${lid} only grazes ${thing} (${span}), so the robot may or may not see ${thing}. Treat it as a hazard.${trip}`;
+  else s = `${span[0].toUpperCase() + span.slice(1)}, which crosses the beam at ${lid}, so ${thing} should be visible to the lidar.${o.trip ? ' It is still low enough for a person to trip on.' : ''}`;
+  if (o.inconsistent) s += ` The scan report contradicts itself here: its verdict at ${lc(S.room.reportH)} is that the lidar ${o.lidar === 'sees' ? 'sees' : o.lidar === 'misses' ? 'misses' : 'only grazes'} ${thing}, but its heights say otherwise. So this page never shows ${thing} as better than marginal, at any height.`;
+  return s;
 }
 function renderDetail() {
   const box = $('detail');
-  const R = S.room, o = R?.obstacles.find((x) => x.id === S.selected);
-  $('sel-hint').textContent = o ? '' : 'tap an object';
-  if (!o) { box.innerHTML = '<p class="empty">Tap an object on the plan or in the list below to see its size and what it means for the robot.</p>'; return; }
-  const k = category(o);
-  const b = bbox(o.outline?.length ? o.outline : rectAround(o));
-  const w = o.size?.[0] ?? b.max[0] - b.min[0], d = o.size?.[1] ?? b.max[1] - b.min[1];
-  box.innerHTML = `<div class="detail">
-    <div class="title">${markerSvg(k, 18)}Object ${o.id}</div>
-    <div class="cat c-${k}">${CAT[k].name}</div>
-    ${gauge(o, R)}
-    <dl>
-      <dt>Height</dt><dd>${hcm(o.height)} cm</dd>
-      <dt>Footprint</dt><dd>${cm(w)} × ${cm(d)} cm</dd>
-      <dt>Position</dt><dd>x ${o.center[0].toFixed(2)} m, y ${o.center[1].toFixed(2)} m</dd>
-    </dl>
-    <p>${explain(o, R)}</p>
-  </div>`;
+  const it = findItem(S.selected);
+  $('sel-hint').textContent = it ? '' : 'tap an object';
+  if (!it) { box.replaceChildren(el('p', { class: 'empty', text: 'Tap an object on the plan or in the list below to see its size and what it means for the robot.' })); return; }
+  const R = S.room, k = it.isPatch ? 'unmeasured' : it.cat;
+  const ol = itemOutline(it), b = ol ? bbox(ol) : null;
+  const w = it.size?.[0] ?? (b ? b.max[0] - b.min[0] : NaN), d = it.size?.[1] ?? (b ? b.max[1] - b.min[1] : NaN);
+  const acc = `±${cm(R.acc)}`;
+  const dl = el('dl');
+  const add = (t, v) => dl.append(el('dt', { text: t }), el('dd', { text: v }));
+  if (it.isDrop) {
+    add('Drops about', fin(it.depth) ? `${cm(it.depth)} cm ${acc}` : 'unknown');
+  } else if (it.isPatch) {
+    if (fin(it.height)) add('Raised about', `${hc(it.height)} (rough)`);
+  } else {
+    add('Height', fin(it.height) ? `${hc(it.height)} ${acc}` : 'unknown');
+    if (it.beam && it.beam[0] > 0.005) add('Beam would hit', `${cm(it.beam[0])}–${cm(it.beam[1])} cm`);
+    add('Trip hazard', it.trip ? 'yes' : 'no');
+  }
+  if (it.center && fin(w) && fin(d)) add('Footprint', `${cm(w)} × ${cm(d)} cm`);
+  add('Position', it.center ? `x ${it.center[0].toFixed(2)} m, y ${it.center[1].toFixed(2)} m` : 'missing');
+  const title = el('div', { class: 'title' }, markerEl(k === 'unmeasured' ? 'unmeasured' : k, 18), itemName(it));
+  const parts = [title, el('div', { class: `cat c-${k}`, text: CAT[k].name })];
+  if (!it.isPatch && !it.isDrop && it.beam && fin(it.height)) {
+    const g = document.createElement('div'); g.innerHTML = gauge(it); parts.push(g.firstElementChild);
+  }
+  parts.push(dl, el('p', { text: it.isDrop
+    ? `The floor falls away here${fin(it.depth) ? ` by about ${cm(it.depth)} cm` : ''}: a step down, a sunken area or a stairwell. The robot could drive off the edge, and its lidar can’t see a drop at any mounting height. A person could trip or fall here. Fence it off or mark it as a no-go area.`
+    : it.isPatch
+    ? 'The scan ran out or the floor was hidden here, so whatever is raised in this patch couldn’t be measured. Check it by eye before a run.'
+    : explain(it) }));
+  box.replaceChildren(el('div', { class: 'detail' }, ...parts));
 }
-function gauge(o, R) {
-  // side elevation: object height against the lidar line, drawn to one scale
-  const maxH = Math.max(R.lidar_height, o.height, R.trip_hazard_max ?? 0) * 1.15;
-  const Wd = 280, Hd = 74, base = 64, sc = (base - 8) / maxH;
-  const ly = base - R.lidar_height * sc, oy = base - o.height * sc;
-  const k = category(o), ow = 38, ox = 120;
-  const fill = k === 'hazard' ? 'url(#hatch)' : k === 'seen' ? 'var(--seen)' : 'none';
+function gauge(o) {
+  // side elevation: where the object stands against the lidar beam and its grazing band, to one scale
+  const R = S.room, B = R.band, [lo, hi] = o.beam;
+  const maxH = Math.max(S.H + B, hi, R.tripMax || 0) * 1.12;
+  const Wd = 280, Hd = 84, base = 72, sc = (base - 8) / maxH, y = (m) => base - m * sc;
+  const k = o.cat, tok = CAT[k].tok, ow = 38, ox = 120;
+  const fill = k === 'hidden' ? 'url(#hatch)' : k === 'hit' ? 'url(#xhatch)' : k === 'seen' ? `var(--seen)` : 'none';
   const op = k === 'seen' ? 0.25 : 1;
-  return `<svg class="gauge" viewBox="0 0 ${Wd} ${Hd}" role="img" aria-label="Side view: object ${hcm(o.height)} cm tall against the lidar beam at ${(R.lidar_height * 100).toFixed(1)} cm">
+  const n = (v) => esc(Math.round(v * 10) / 10);
+  return `<svg class="gauge" viewBox="0 0 ${Wd} ${Hd}" role="img" aria-label="${esc(`Side view: the object spans ${cm(lo)} to ${cm(hi)} cm; the lidar beam is at ${lc(S.H)}`)}">
+    <rect x="0" y="${n(y(S.H + B))}" width="${Wd}" height="${n(2 * B * sc)}" style="fill:var(--accent);fill-opacity:.12"></rect>
     <line x1="0" y1="${base}" x2="${Wd}" y2="${base}" style="stroke:var(--ink);stroke-width:1.5"></line>
-    <rect x="${ox}" y="${oy}" width="${ow}" height="${base - oy}" style="fill:${fill};fill-opacity:${op};stroke:var(--${k});stroke-width:2${k === 'other' ? ';stroke-dasharray:2 3' : ''}"></rect>
-    <line x1="0" y1="${ly}" x2="${Wd}" y2="${ly}" style="stroke:var(--accent);stroke-width:1.5;stroke-dasharray:6 3"></line>
-    <text x="2" y="${ly - 4}" style="fill:var(--accent);font:600 9.5px var(--font-data)">LIDAR ${(R.lidar_height * 100).toFixed(1)} cm</text>
-    <text x="${ox + ow + 6}" y="${Math.min(oy + 10, base - 3)}" style="fill:var(--ink);font:500 10px var(--font-data)">${hcm(o.height)} cm</text>
-    <text x="2" y="${base + 9}" style="fill:var(--ink-2);font:500 8.5px var(--font-data)">FLOOR</text>
+    <rect x="${ox}" y="${n(y(hi))}" width="${ow}" height="${n(Math.max(1, (hi - lo) * sc))}" style="fill:${fill};fill-opacity:${op};stroke:var(--${tok});stroke-width:2${k === 'marginal' ? ';stroke-dasharray:2 3' : ''}"></rect>
+    <line x1="0" y1="${n(y(S.H))}" x2="${Wd}" y2="${n(y(S.H))}" style="stroke:var(--accent);stroke-width:1.5;stroke-dasharray:6 3"></line>
+    <text x="2" y="${n(y(S.H + B) - 3)}" style="fill:var(--accent);font:600 9.5px var(--font-data)">LIDAR ${esc(lc(S.H))}</text>
+    <text x="${ox + ow + 6}" y="${n(Math.min(y(hi) + 10, base - 3))}" style="fill:var(--ink);font:500 10px var(--font-data)">${esc(hc(hi))}</text>
+    ${lo > 0.005 ? `<text x="${ox + ow + 6}" y="${n(Math.min(y(lo) + 4, base - 3))}" style="fill:var(--ink-2);font:500 10px var(--font-data)">${esc(hc(lo))}</text>` : ''}
+    <text x="2" y="${base + 10}" style="fill:var(--ink-2);font:500 8.5px var(--font-data)">FLOOR</text>
   </svg>`;
 }
-function select(id) {
-  S.selected = id;
-  document.querySelectorAll('.row').forEach((b) => b.setAttribute('aria-pressed', String(b.id === `row-${id}`)));
+function select(key) {
+  S.selected = key;
+  document.querySelectorAll('.row').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.key === key)));
   renderDetail(); draw();
   if (S.three) S.three.highlight();
 }
 
 /* ---------- toolbar ---------- */
 function setView(v) {
+  if (v === '3d' && (!S.room || $('v-3d').disabled)) return;
   S.view = v;
   $('v-plan').setAttribute('aria-pressed', String(v === 'plan'));
   $('v-3d').setAttribute('aria-pressed', String(v === '3d'));
@@ -742,14 +1180,15 @@ function setView(v) {
   $('plan-tools').hidden = v !== 'plan';
   $('z-out').hidden = $('z-in').hidden = v !== 'plan';
   $('z-fit').textContent = v === 'plan' ? 'Fit' : 'Reset view';
-  $('hint').textContent = v === 'plan' ? 'Drag to pan · scroll or pinch to zoom · tap an object' : 'Drag to orbit · right-drag or two fingers to pan · tap a column';
+  L = null;
+  $('hint').textContent = v === 'plan' ? 'Drag to pan · scroll or pinch to zoom · tap an object · [ ] steps through them' : 'Drag to orbit · right-drag or two fingers to pan · tap a column';
   updateReadout();
   if (v === '3d') open3d(); else { S.three?.stop(); resizePlan(); }
 }
 $('v-plan').addEventListener('click', () => setView('plan'));
 $('v-3d').addEventListener('click', () => setView('3d'));
 $('t-ruler').addEventListener('click', () => {
-  S.ruler = !S.ruler; S.rulerPts = [];
+  S.ruler = !S.ruler; S.rulerPts = []; S.cross = S.ruler ? toWorld(W / 2, H / 2) : null;
   $('t-ruler').setAttribute('aria-pressed', String(S.ruler));
   plan.classList.toggle('measuring', S.ruler);
   updateReadout(); draw();
@@ -761,24 +1200,21 @@ $('z-fit').addEventListener('click', () => (S.view === 'plan' ? fit() : S.three?
 
 /* ---------- 3D view ---------- */
 let threeLoading = null;
-async function open3d() {
+function open3d() {
   if (S.three) { S.three.start(); return; }
   if (threeLoading) return;
   threeLoading = (async () => {
-    let THREE, GLTFLoader, OrbitControls;
     try {
-      THREE = await import('three');
-      ({ GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'));
-      ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+      const THREE = await import('three');
+      const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+      const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
+      S.three = build3d(THREE, GLTFLoader, OrbitControls);
+      if (S.view === '3d') S.three.start();
     } catch (e) {
-      note('error', '3D viewer unavailable', ` The 3D library couldn’t load (${e.message}). The plan view still works.`);
-      return;
-    }
-    S.three = build3d(THREE, GLTFLoader, OrbitControls);
-    S.three.start();
+      note('error', '3D viewer unavailable', ` The 3D view couldn’t start (${e.message}). The plan view still works.`, '3d');
+      if (S.view === '3d') setView('plan');
+    } finally { threeLoading = null; }
   })();
-  await threeLoading;
-  threeLoading = null;
 }
 
 function build3d(THREE, GLTFLoader, OrbitControls) {
@@ -791,75 +1227,97 @@ function build3d(THREE, GLTFLoader, OrbitControls) {
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = !reduceMotion;
   controls.maxPolarAngle = Math.PI * 0.495;
-  const floorY = R?.floor?.gltf_floor_y ?? 0;
-  const b = R?.bounds ?? { min: [-1, -1], max: [1, 1] };
+  // the fitted floor: glTF y at map (x, y) is a*x + b*y + c; map (x, y) is glTF (x, -z)
+  const floorY = R.floor.y;
+  const fy = R.floor.plane ? (x, y) => R.floor.plane[0] * x + R.floor.plane[1] * y + R.floor.plane[2] : () => floorY;
+  const b = R.bounds;
   const span = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1], 1);
-  const centre = new THREE.Vector3((b.min[0] + b.max[0]) / 2, floorY, -(b.min[1] + b.max[1]) / 2);
+  const mid = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2];
+  const centre = new THREE.Vector3(mid[0], fy(...mid), -mid[1]);
   const col = (k) => new THREE.Color(S.colors[k] || '#888');
+  const V = (x, y, h) => new THREE.Vector3(x, fy(x, y) + h, -y);
 
-  // lidar plane: the key idea - everything below this sheet is invisible to the robot
-  let lidY = floorY + (R?.lidar_height ?? 0.2);
-  const pw = (b.max[0] - b.min[0]) * 1.15, pd = (b.max[1] - b.min[1]) * 1.15;
+  // lidar sheet: parallel to the fitted floor, so it is at the true height above it everywhere
+  const pw = (b.max[0] - b.min[0]) * 1.15 / 2, pd = (b.max[1] - b.min[1]) * 1.15 / 2;
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => [mid[0] + sx * pw, mid[1] + sy * pd]);
+  const sheetGeo = new THREE.BufferGeometry();
+  sheetGeo.setAttribute('position', new THREE.Float32BufferAttribute(new Array(12).fill(0), 3));
+  sheetGeo.setIndex([0, 1, 2, 0, 2, 3]);
   const planeMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(pw, pd), planeMat);
-  plane.rotation.x = -Math.PI / 2; plane.position.set(centre.x, lidY, centre.z);
-  plane.renderOrder = 2;
-  scene.add(plane);
+  const sheet = new THREE.Mesh(sheetGeo, planeMat); sheet.renderOrder = 2; scene.add(sheet);
   const edgeMat = new THREE.LineDashedMaterial({ dashSize: 0.05, gapSize: 0.03, transparent: true, opacity: 0.95 });
-  const ePts = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([sx, sz]) => new THREE.Vector3(centre.x + sx * pw / 2, lidY, centre.z + sz * pd / 2));
-  const edge = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ePts), edgeMat);
-  edge.computeLineDistances(); scene.add(edge);
-  const lidarAnchor = ePts[3].clone();
+  const edge = new THREE.Line(new THREE.BufferGeometry(), edgeMat); scene.add(edge);
+  let lidarAnchor = V(...corners[3], S.H);
 
-  // floor grid at 10 cm
+  // floor grid at 10 cm (level, at the floor's centre height)
   let grid = null;
   const makeGrid = () => {
     if (grid) { scene.remove(grid); grid.geometry.dispose(); grid.material.dispose(); }
     const size = Math.ceil(span * 1.3);
     grid = new THREE.GridHelper(size, size * 10, col('grid-major'), col('grid'));
-    grid.position.set(centre.x, floorY - 0.002, centre.z);
+    grid.position.set(centre.x, centre.y - 0.004, centre.z);
+    if (R.floor.plane) {   // floor normal in three.js axes: y = a*X - b*Z + c  ->  (-a, 1, b)
+      const [a, bb] = R.floor.plane;
+      grid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(-a, 1, bb).normalize());
+    }
     grid.material.transparent = true; grid.material.opacity = 0.7;
     scene.add(grid);
   };
   makeGrid();
 
-  // obstacle columns: prism (hazard), cylinder (seen), box (other) - shapes match the legend markers
+  // faint outlines: walls in ink, unmeasured patches dashed grey
+  const outlineLines = (items, dashed, defH, strong = false) => {
+    const pos = [];
+    for (const it of items) {
+      const pts = itemOutline(it), h = fin(it.height) && it.height !== 0 ? it.height : defH;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], c = pts[(i + 1) % pts.length];
+        for (const z of [0, h]) pos.push(...V(...a, z).toArray(), ...V(...c, z).toArray());
+        if (pts.length <= 12 || i % Math.ceil(pts.length / 12) === 0) pos.push(...V(...a, 0).toArray(), ...V(...a, h).toArray());
+      }
+    }
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    const m = dashed ? new THREE.LineDashedMaterial({ dashSize: 0.03, gapSize: 0.025, transparent: true, opacity: 0.7 })
+      : new THREE.LineBasicMaterial({ transparent: true, opacity: strong ? 1 : 0.35 });
+    const l = new THREE.LineSegments(g, m); if (dashed) l.computeLineDistances();
+    scene.add(l); return m;
+  };
+  const wallMat = outlineLines(R.walls, false, 2.4);
+  const patchMat = outlineLines(R.unmeasured, true, 0.03);
+  // drop-offs: a recessed outline, from the floor down to the depth the report gives
+  const dropMat = outlineLines(R.drops.map((d) => ({ ...d, height: -(fin(d.depth) && d.depth > 0 ? d.depth : 0.1) })), false, -0.1, true);
+
+  // obstacle columns: the object's footprint plus 1 cm each side, from where the beam would first hit it to its top
   const cols = [];
-  function columnGeo(o, k) {
-    const r = Math.max(...(o.size || [0.1, 0.1])) / 2 * 1.2;
-    return k === 'hazard' ? new THREE.CylinderGeometry(r * 1.25, r * 1.25, o.height, 3)
-      : k === 'seen' ? new THREE.CylinderGeometry(r, r, o.height, 32)
-      : new THREE.BoxGeometry(r * 1.8, o.height, r * 1.8);
-  }
-  for (const o of R?.obstacles ?? []) {
-    const k = category(o);
-    const geo = columnGeo(o, k);
+  for (const o of R.obstacles) {
+    if (!o.center) continue;
+    const [w, d] = o.size || [0.1, 0.1];
+    const lo = o.beam ? o.beam[0] : 0, hi = o.beam ? o.beam[1] : fin(o.height) ? o.height : 0.05;
+    const hgt = Math.max(hi - lo, 0.01);
+    const geo = new THREE.BoxGeometry(w + 0.02, hgt, d + 0.02);
     const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.32, depthWrite: false });
     const m = new THREE.Mesh(geo, mat);
-    m.position.set(o.center[0], floorY + o.height / 2, -o.center[1]);
-    if (k === 'hazard') m.rotation.y = Math.PI;
+    m.position.copy(V(...o.center, lo + hgt / 2));
     const lines = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial());
     m.add(lines);
-    m.userData = { id: o.id, k, mat, lineMat: lines.material, top: new THREE.Vector3(o.center[0], floorY + o.height, -o.center[1]) };
+    const tag = el('div', { class: 'tag3d' });
+    labels.append(tag);
+    m.userData = { key: o.key, o, mat, lineMat: lines.material, top: V(...o.center, lo + hgt), tag };
     scene.add(m); cols.push(m);
-    const tag = document.createElement('div'); tag.className = 'tag3d'; tag.textContent = `${hcm(o.height)} cm`;
-    labels.append(tag); m.userData.tag = tag;
   }
-  const lidarTag = document.createElement('div'); lidarTag.className = 'lidar-tag';
+  const lidarTag = el('div', { class: 'lidar-tag' });
   labels.append(lidarTag);
-  const baseLidY = lidY;
   function setLidar() {
-    lidY = floorY + R.lidar_height;
-    plane.position.y = lidY; edge.position.y = lidY - baseLidY; lidarAnchor.y = lidY;
-    lidarTag.innerHTML = `<b>Lidar beam · ${(R.lidar_height * 100).toFixed(1)} cm</b>The robot only sees what pokes up through this sheet. Everything under it is invisible to the lidar.`;
-    for (const m of cols) {   // a column whose category changed takes the new shape too
-      const k = category(R.obstacles.find((o) => o.id === m.userData.id));
-      if (k === m.userData.k) continue;
-      const o = R.obstacles.find((x) => x.id === m.userData.id);
-      m.geometry.dispose(); m.geometry = columnGeo(o, k);
-      m.children[0].geometry.dispose(); m.children[0].geometry = new THREE.EdgesGeometry(m.geometry, 30);
-      m.rotation.y = k === 'hazard' ? Math.PI : 0;
-      m.userData.k = k;
+    const pts = corners.map((c) => V(...c, S.H));
+    const pa = sheetGeo.attributes.position;
+    pts.forEach((p, i) => pa.setXYZ(i, p.x, p.y, p.z));
+    pa.needsUpdate = true; sheetGeo.computeBoundingSphere();
+    edge.geometry.dispose(); edge.geometry = new THREE.BufferGeometry().setFromPoints([...pts, pts[0]]); edge.computeLineDistances();
+    lidarAnchor = pts[3];
+    lidarTag.replaceChildren(el('b', { text: `Lidar beam · ${lc(S.H)}` }), 'The robot only sees what crosses this sheet. Everything wholly under or over it is invisible to the lidar.');
+    for (const m of cols) {
+      const k = m.userData.o.cat;
+      m.userData.tag.replaceChildren(markerEl(k, 11), m.userData.o.cat === 'unknown' ? '?' : hc(m.userData.o.height));
     }
     highlight();
   }
@@ -867,16 +1325,18 @@ function build3d(THREE, GLTFLoader, OrbitControls) {
   function applyTheme() {
     renderer.setClearColor(col('paper'), 1);
     planeMat.color = col('accent'); edgeMat.color = col('accent');
+    wallMat.color = col('ink'); patchMat.color = col('ink-2'); dropMat.color = col('drop');
     makeGrid();
     highlight();
   }
   function highlight() {
     for (const m of cols) {
-      const on = m.userData.id === S.selected, dim = S.selected != null && !on;
-      m.userData.mat.color = col(m.userData.k);
+      const tok = CAT[m.userData.o.cat].tok;
+      const on = m.userData.key === S.selected, dim = S.selected != null && !on;
+      m.userData.mat.color = col(tok);
       m.userData.mat.opacity = on ? 0.6 : dim ? 0.16 : 0.34;
-      m.userData.lineMat.color = col(on ? 'accent' : m.userData.k);
-      m.userData.tag.style.color = S.colors[on ? 'accent' : m.userData.k];
+      m.userData.lineMat.color = col(on ? 'accent' : tok);
+      m.userData.tag.style.color = S.colors[on ? 'accent' : tok];
       m.userData.tag.style.fontWeight = on ? '700' : '500';
     }
     renderOnce();
@@ -896,7 +1356,7 @@ function build3d(THREE, GLTFLoader, OrbitControls) {
     renderOnce();
   };
   const scanMissing = (err) => {
-    note('error', '3D scan missing', ` room.glb couldn’t be loaded (${err?.message || 'network error'}). The columns and lidar sheet are still shown; the plan view is unaffected.`);
+    note('error', '3D scan missing', ` room.glb couldn’t be loaded (${err?.message || 'network error'}). The columns and lidar sheet are still shown; the plan view is unaffected.`, 'glb');
   };
   fetch('room.glb.json')
     .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
@@ -904,8 +1364,8 @@ function build3d(THREE, GLTFLoader, OrbitControls) {
     .catch(() => new GLTFLoader().load('room.glb', scanLoaded, undefined, scanMissing));
 
   function reset() {
-    camera.position.set(centre.x + span * 0.9, floorY + span * 0.85, centre.z + span * 1.25);
-    controls.target.set(centre.x, floorY + 0.05, centre.z);
+    camera.position.set(centre.x + span * 0.9, centre.y + span * 0.85, centre.z + span * 1.25);
+    controls.target.set(centre.x, centre.y + 0.05, centre.z);
     controls.update(); renderOnce();
   }
   function resize() {
@@ -954,7 +1414,7 @@ function build3d(THREE, GLTFLoader, OrbitControls) {
     ndc.set((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
     const hit = ray.intersectObjects(cols, false)[0];
-    select(hit ? hit.object.userData.id : null);
+    select(hit ? hit.object.userData.key : null);
   });
 
   setLidar(); applyTheme(); reset();
@@ -962,42 +1422,69 @@ function build3d(THREE, GLTFLoader, OrbitControls) {
 }
 
 /* ---------- theme ---------- */
-function onTheme() { readColors(); makeHatch(); draw(); S.three?.applyTheme(); }
+function onTheme() { L = null; readColors(); makePatterns(); draw(); S.three?.applyTheme(); }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onTheme);
 new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 /* ---------- boot ---------- */
+function failed(msg) {
+  note('error', 'Map data problem', ' ' + msg, 'load');
+  $('finding').textContent = 'The map data didn’t load, so there is nothing to show. See the note on the map.';
+  $('schedule').replaceChildren(el('li', {}, el('p', { class: 'empty', text: 'No map data.' })));
+  for (const id of ['s-area', 's-count', 's-hidden', 's-src']) $(id).textContent = '–';
+  $('sched-count').textContent = ''; $('unmeasured-wrap').hidden = true; $('detail').replaceChildren(el('p', { class: 'empty', text: 'Nothing to show.' }));
+  S.room = null;
+  $('v-3d').disabled = true;
+  draw();
+}
 readColors();
 new ResizeObserver(() => { if (S.view === 'plan') { const first = !W; resizePlan(); if (first) fit(); } }).observe(plan);
-makeHatch();
-const room = await loadRoom();
-if (room) {
-  room.obstacles = room.obstacles || [];
-  S.room = room;
-  summarise(room);
-  renderSchedule();
-  const firstHazard = [...room.obstacles].sort((a, b) => ORDER[category(a)] - ORDER[category(b)] || b.height - a.height)[0];
+makePatterns();
+try {
+  const R = normalise(await loadRoom());
+  S.H = R.reportH;
+  classify();
+  if (R.assumedH) note('error', 'Lidar height missing', ' The report doesn’t say how high the lidar is, so this page assumes 19.5 cm. Every result below depends on that guess.', 'h');
+  if (R.problems.length) {
+    const ul = el('ul');
+    R.problems.slice(0, 12).forEach((p) => ul.append(el('li', { text: p })));
+    if (R.problems.length > 12) ul.append(el('li', { text: `and ${R.problems.length - 12} more` }));
+    const n = R.problems.length;
+    note('error', 'Some scan data was missing or odd', el('div', {}, 'Anything doubtful is shown as a hazard. ',
+      el('details', {}, el('summary', { text: `Show ${n === 1 ? 'the problem' : `the ${n} problems`}` }), ul)), 'data');
+  }
+  summarise(); renderSchedule();
   fit();
-  if (firstHazard) select(firstHazard.id);
+  const first = S.order[0];
+  if (first) select(first); else draw();
+  $('v-3d').disabled = false; $('v-3d').removeAttribute('title');
 
-  // Lidar height slider: a what-if on this page only; the report keeps the
-  // height it was made with, which the Reset button returns to.
-  const reportH = room.lidar_height, slider = $('lidar-h');
-  slider.value = (reportH * 100).toFixed(1);
-  const applyH = () => {
-    room.lidar_height = +slider.value / 100;
-    const changed = Math.abs(room.lidar_height - reportH) > 1e-6;
-    $('lidar-out').textContent = `${(+slider.value).toFixed(1)} cm`;
-    $('lidar-src').textContent = changed ? `report: ${(reportH * 100).toFixed(1)} cm` : 'from the report';
+  // Lidar height slider: a what-if on this page only; Reset returns exactly to the report's height.
+  const slider = $('lidar-h'), rep = R.reportH * 100;
+  slider.min = String(Math.min(5, Math.floor(rep))); slider.max = String(Math.max(40, Math.ceil(rep)));
+  const applyH = (H) => {
+    S.H = H;
+    const changed = Math.abs(H - R.reportH) > 1e-9;
+    $('lidar-out').textContent = lc(H);
+    slider.setAttribute('aria-valuetext', lc(H));
+    $('lidar-src').textContent = changed ? `report: ${lc(R.reportH)}${R.assumedH ? ' (assumed)' : ''}` : R.assumedH ? 'assumed' : 'from the report';
     $('lidar-reset').hidden = !changed;
-    summarise(room); renderSchedule(); renderDetail(); draw();
-    S.three?.setLidar();
+    if (pending) return;
+    pending = requestAnimationFrame(() => {
+      pending = 0;
+      classify(); summarise(); renderDetail(); draw();
+      S.three?.setLidar();
+      // the long list is the expensive part to lay out: rebuild it once the slider pauses
+      clearTimeout(schedTimer); schedTimer = setTimeout(renderSchedule, 150);
+    });
   };
-  slider.addEventListener('input', applyH);
-  $('lidar-reset').addEventListener('click', () => { slider.value = (reportH * 100).toFixed(1); applyH(); });
-  applyH();
-} else {
-  $('finding').textContent = 'The map data didn’t load, so there is nothing to show yet.';
+  let pending = 0, schedTimer = 0;
+  slider.addEventListener('input', () => applyH(+slider.value / 100));
+  $('lidar-reset').addEventListener('click', () => { slider.value = rep.toFixed(1); applyH(R.reportH); slider.focus(); });
+  slider.value = rep.toFixed(1);
+  applyH(R.reportH);
+} catch (e) {
+  failed(e.message || String(e));
 }
-document.fonts?.ready.then(() => draw());
+document.fonts?.ready.then(() => { L = null; draw(); });
 </script>

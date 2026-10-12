@@ -54,7 +54,8 @@
     </model>
 
     <!-- Room shell. Walls are 0.1 m thick and 1.2 m tall: above the lidar
-         plane at 0.22 m, which is all the 2D safety layer can see. -->
+         plane (0.195 m above the floor, the unmeasured placeholder from
+         robot.urdf.xacro), which is all the 2D safety layer can see. -->
     <model name="walls">
       <static>true</static>
       <link name="link">

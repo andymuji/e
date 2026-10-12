@@ -86,11 +86,18 @@ performed by a real robot at speed.
 ### H-02 The robot hits something the lidar cannot see — **Critical**
 
 **How it happens.** The lidar is a single horizontal slice at one height
-(0.15 m above the floor in the current placeholder design). It sees that slice
+(0.195 m above the floor in the current placeholder design: worked out from
+the unmeasured dimensions in `robot.urdf.xacro`). It sees that slice
 and nothing else. A person lying on the floor after a fall, a foot, a walking
 frame's lower rail, a sleeping cat, a dropped walking stick, a low footstool,
 a child — any of these can be entirely below the beam. A table top or a
 person's outstretched arm can be entirely above it.
+
+The first phone scan of a floor (2026-10-05, see
+[poc-plan.md](poc-plan.md#map-the-room-with-the-phone-before-the-lidar))
+showed five 13–15 cm balls that a lidar at the placeholder height would all
+miss. The scan is a survey of one moment and clutter moves, so it is not a
+control for this hazard; a floor-facing sensor on the robot would be.
 
 This is the single most dangerous limitation in the system, and it is a
 property of the sensor, not a bug in the code. **A person who has fallen — the
@@ -108,6 +115,14 @@ repository or in the robot description.
 plus a physical bumper that cuts motor power on contact rather than reporting
 it to software. The hardware principles in `README.md` already call for bumper
 and contact sensors; none is specified or wired yet.
+
+A cheap candidate for the second sensing mode (researched 2026-10-09, not
+bought): a VL53L5CX or VL53L7CX 8×8 time-of-flight sensor angled at the floor
+ahead, on the Pi's I2C bus. `tof_imager_ros`
+(github.com/adityakamath/tof_imager_ros, Apache-2.0, Jazzy) publishes it as a
+point cloud, which the Nav2 Collision Monitor already in front of the gate
+accepts as a source. It narrows the gap below the beam; it is not the bumper,
+which is still needed.
 
 ---
 
@@ -564,7 +579,7 @@ else.
 - The stair-climbing mechanism discussed in `README.md`. A different machine,
   a different analysis.
 - Privacy, data protection and recording consent for the voice and camera
-  paths. Real and necessary, but not a physical-injury hazard, and it deserves
-  its own document.
+  paths. Real and necessary, but not a physical-injury hazard, so it has its
+  own document: [privacy.md](privacy.md).
 - Medical decisions of any kind. This robot fetches things and moves around; it
   is not a medical device and must not be described as one.

@@ -29,6 +29,12 @@ robot/scripts/setup-pi.sh builds it in its own workspace, ~/ldlidar_ws, pinned
 and with the extra compiler flag Ubuntu 24.04 needs; don't also clone it into
 robot/ros2_ws/src.
 
+Its scans vary in length: the pinned driver sizes each LaserScan to however
+many readings that turn produced (beam_size = src.size() in src/demo.cpp).
+Cartographer and robot_safety (nearest valid reading) don't mind;
+slam_toolbox drops scans whose length changes (ldlidar_ros2 issue #1), so
+don't swap mappers without fixing that first.
+
 Its own ld14p.launch.py is deliberately NOT used: it also publishes
 base_link -> base_laser at a made-up height, and a second publisher of the
 lidar's position would fight the one below.

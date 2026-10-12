@@ -33,30 +33,52 @@ stand: they wait for the lidar.
 ## Map the room with the phone, before the lidar
 
 The phone's depth sensor scans the room in 3D. `scan_to_map` turns that scan
-into the same kind of map file the robot's software uses: it slices the scan
-at the height the lidar will sit, so it marks what the lidar would bump into,
-and draws it from above.
+into two things: a map file in the format the robot's software uses, and a
+**hazard survey** — a list of everything standing on the floor, how tall it
+is, whether it's a trip hazard, and whether the lidar's beam would hit it.
 
-**What it is and isn't.** The phone map shows the room's real shape. The
-robot didn't make it, and it can't yet tell where it is on it; that needs the
-lidar. The robot's safety gate also won't turn the wheels without the lidar
-(no lidar reading, no motion — on purpose), so the base doesn't drive in this
-step.
+**What it is and isn't.**
 
-**The RC car is only a camera dolly.** It's a separate toy carrying the
-phone, driven by its own remote. It isn't the robot and no robot software
-touches it. Still: nobody else in the room, and drive it slowly.
+- **It's a survey of one moment, not the robot's map.** Clutter moves; the
+  scan doesn't. The robot will navigate on a map its own lidar makes. The
+  phone map's origin, scale and drift don't match that map, and nothing lines
+  them up yet.
+- **It's only as good as the phone.** iPhone LiDAR is good to about 1–3 cm up
+  close and 10–20 cm across a whole room. The report rounds to whole
+  centimetres and marks anything within 5 cm of the lidar's height as
+  "marginal": the beam may or may not catch it.
+- **It can't see the lowest trip hazards.** Rug edges, cables and door
+  thresholds under 2 cm are below what it detects, and they are what older
+  people trip on most. Check those by eye.
+- **The base still doesn't drive.** The safety gate won't turn the wheels
+  without a lidar reading — on purpose.
+
+**The RC car is only a camera dolly.** It's a toy the owner already had, not
+a part bought for the robot, carrying the phone and driven by its own remote.
+No robot software touches it. Still: nobody else in the room, and drive it
+slowly.
 
 **What the first test scan (2026-10-05) showed.** The phone stood upright on
 the car and scanned a 2.4 × 2.5 m patch of floor with five balls on it,
-8–17 cm tall. It saw the balls clearly. Two lessons came out of it:
+13–15 cm tall. It saw the balls clearly. Two lessons came out of it:
 
-- **The lidar will be blind to all five balls.** It will sit about 20 cm up
-  and sweeps a flat slice at that height, so anything lower passes under it.
-  Shoes, balls, a dropped cane: those are what an older person trips on. The
-  phone scan is how we see them, and the room report marks them.
+- **It re-confirms hazard H-02.** The
+  [hazard analysis](hazard-analysis.md#h-02-the-robot-hits-something-the-lidar-cannot-see--critical)
+  already says a single-height lidar is blind to anything below its beam.
+  If the lidar sits at the 19.5 cm placeholder height, it misses all five
+  balls; at 12 cm it would see them. **The height is a placeholder from the
+  robot description, not measured** — measure it once the lidar is on the
+  base (floor to the middle of its window). The real fix for low clutter is
+  a sensor on the robot that looks at the floor, not a phone scan.
 - **A low phone sees about a metre around itself.** That's why the scan ends
   in a ragged edge and caught no walls. Drive along every wall to get them.
+
+**Privacy: scans stay off GitHub.** This repository is public. A textured
+scan of someone's home shows its layout and whatever was lying around:
+medicine, letters, photos, faces. `.gitignore` keeps `.glb` scans out of git
+(the 2026-10-05 test patch is the one exception: it's bare floor and balls,
+and the tests use it). Before scanning anyone else's home, ask them, and see
+[privacy](privacy.md).
 
 1. In Polycam, start a **LiDAR** capture (not Room mode, and not Photo mode).
 2. Fix the phone upright to the RC car, back camera facing forward and
@@ -70,8 +92,8 @@ the car and scanned a 2.4 × 2.5 m patch of floor with five balls on it,
    Bright, even light gives a sharper picture: the first scan's colours
    smeared where it moved fast.
 4. Finish, let Polycam process, then **Export → glTF (GLB)**. That's in the
-   free plan. AirDrop the file to the Mac and put it in the project, e.g.
-   `docs/runs/2026-10-xx-room-scan.glb`.
+   free plan. AirDrop the file to the Mac and put it in `docs/runs/`, e.g.
+   `docs/runs/2026-10-xx-room-scan.glb`. Git ignores it there.
 5. Convert it (inside the dev container, from the repository root):
 
    ```bash
@@ -80,17 +102,31 @@ the car and scanned a 2.4 × 2.5 m patch of floor with five balls on it,
      --report docs/room-viewer/room.json
    ```
 
-   `--height` sets the slicing height in metres (default 0.195, the
-   placeholder lidar height). Change it once the real lidar is mounted.
-   The report lists everything standing on the floor: where it is, how big,
-   how tall, whether it's a trip hazard, and whether the lidar would see it.
+   `--height` sets the lidar's height in metres (default 0.195, the
+   placeholder). Change it once the real lidar is mounted and measured.
    If nothing reaches the lidar's height, it writes the report but no map,
    and says so — an empty map would wrongly claim the floor is clear.
 6. Open `living_room.pgm` to check it: black is walls and furniture, white is
-   floor, grey is never seen. Commit the map, the report and the scan.
+   floor, grey is never seen. Commit the map and the report — **not the
+   scan**. The map and report hold no photos, only shapes and sizes.
 7. To see it on the website, ask Claude to republish the room viewer
-   (`docs/room-viewer/index.html`) with the new scan as `room.glb`. It's a
-   private page only you can open.
+   (`docs/room-viewer/index.html`) with the new scan. The page has a slider
+   for trying different lidar heights. Check who it's shared with in the
+   page's Share menu: it should be private.
+
+**Demo it.** To show all of this live from a terminal, with no website:
+
+```bash
+robot/scripts/demo-room.sh docs/runs/10_12_2026.zip
+```
+
+It converts the scan, lists what stands on the floor, opens the map as a
+picture, and serves the 3D room page at `http://localhost:8000` until
+Ctrl+C. It needs only Python 3. On a Mac it opens both in Preview and the
+browser. In a Codespace there is no screen, so it prints the links instead
+and VS Code offers "Open in Browser". Everything it makes is deleted when it
+stops, and nothing goes into the repository. It needs an internet connection
+for the 3D drawing library, so do a practice run on the demo's Wi-Fi.
 
 ---
 

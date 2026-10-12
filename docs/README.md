@@ -51,9 +51,9 @@ the choice was made rather than reconstructed afterwards.
 - Anything describing a physical robot. There isn't one. Every dimension and
   every braking figure in this repository is a placeholder, which the hazard
   analysis records as its own hazard (H-14).
-- Privacy and data-protection analysis for the voice and camera paths. Needed,
-  not yet written, and noted as out of scope at the end of the hazard
-  analysis.
+- A full privacy and data-protection analysis for the voice and camera paths.
+  [privacy.md](privacy.md) sets the basic rules (consent first, scans never
+  in git); the analysis itself is still needed.
 - Anything about stair climbing beyond the note that it is a separate machine
   needing its own hazard analysis.
 
