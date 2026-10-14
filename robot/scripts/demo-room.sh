@@ -3,7 +3,7 @@
 # the floor, open the map as a picture, and serve the 3D room page.
 #
 # Usage, from anywhere:
-#   robot/scripts/demo-room.sh docs/runs/10_12_2026.zip [PORT]   default 8000
+#   robot/scripts/demo-room.sh docs/runs/demo-room-scan.zip [PORT]   default 8000
 # The scan is a Polycam export, .glb or the .zip it is sent in.
 #
 # Needs only python3 - no ROS, nothing installed. Everything it makes goes

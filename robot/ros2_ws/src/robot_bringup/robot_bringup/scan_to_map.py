@@ -526,7 +526,7 @@ def _clip(poly, axis: int, lo: float, hi: float):
             d = (p[axis] - bound) * sign
             if (d >= 0) != (d_last >= 0):
                 t = d_last / (d_last - d)
-                poly.append(tuple(q + t * (r - q) for q, r in zip(last, p, strict=True)))
+                poly.append(tuple(q + t * (r - q) for q, r in zip(last, p)))  # noqa: B905 - no strict=, the demo Mac runs Python 3.9
             if d >= 0:
                 poly.append(p)
             last, d_last = p, d

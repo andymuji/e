@@ -117,7 +117,7 @@ and the tests use it). Before scanning anyone else's home, ask them, and see
 **Demo it.** To show all of this live from a terminal, with no website:
 
 ```bash
-robot/scripts/demo-room.sh docs/runs/10_12_2026.zip
+robot/scripts/demo-room.sh docs/runs/demo-room-scan.zip
 ```
 
 It converts the scan, lists what stands on the floor, opens the map as a
