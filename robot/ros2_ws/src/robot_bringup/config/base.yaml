@@ -44,7 +44,7 @@ base_driver:
     max_linear_speed: 0.3
     max_angular_speed: 1.0
 
-    # Drive it like a tank for the proof of concept (docs/poc-plan.md):
+    # Drive it like a tank for the proof of concept (docs/guides/poc-plan.md):
     # sideways requests are dropped. Mecanum sideways motion slips the most
     # and is the hardest to judge from across a room.
     allow_sideways: false

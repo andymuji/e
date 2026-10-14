@@ -1,6 +1,6 @@
 # Wiring checklist: power, emergency stop, drivers and Pico
 
-For Stages 2 and 3 of the [proof-of-concept plan](poc-plan.md). One check per
+For Stages 2 and 3 of the [proof-of-concept plan](../guides/poc-plan.md). One check per
 step: tick it, and don't go on until it's ticked. If a check fails, stop and
 work out why before changing anything else.
 

@@ -90,8 +90,8 @@ Still hardware-blocked, and still only this: the URDF dimensions and
 | Agent | Track | Owns |
 |---|---|---|
 | 5 | Console to ROS: the operator console drives a real graph | `web_ui/**`, new `robot_console/**` |
-| 6 | Navigation bring-up: map the test room, reach a goal | `robot_bringup/**`, `robot_description/**`, `docs/getting-started.md` |
-| 7 | Flight recorder: recorded runs as safety evidence | new `robot_telemetry/**`, `docs/safety-test-procedure.md` |
+| 6 | Navigation bring-up: map the test room, reach a goal | `robot_bringup/**`, `robot_description/**`, `docs/guides/getting-started.md` |
+| 7 | Flight recorder: recorded runs as safety evidence | new `robot_telemetry/**`, `docs/safety/safety-test-procedure.md` |
 | 8 | Voice input path and the speech-provider ADR | `robot_voice/**`, `docs/decisions/0002-*.md` |
 
 Shared files nobody owns: `README.md`, `AGENTS.md`, this file, `.claude/**`,
@@ -192,7 +192,7 @@ first goal-reaching run. Needs the user's decision, not an agent's.
 ## Track A — drive it (needs the container)
 
 Owns: `robot_bringup/launch/*`, `robot_bringup/config/nav2*`, `robot_bringup/maps/**`,
-`robot_navigation/config/**`, `docs/getting-started.md`.
+`robot_navigation/config/**`, `docs/guides/getting-started.md`.
 Runs `robot_telemetry` but does not edit it.
 
 1. First goal-reaching run in simulation. Nothing has navigated, anywhere.
@@ -214,7 +214,7 @@ Runs `robot_telemetry` but does not edit it.
 ## Track B — build it (no container needed)
 
 Owns: new `robot_bringup/config/collision_monitor.yaml`, new
-`robot_bringup/launch/collision_monitor.launch.py`, new `docs/hazard-analysis.md`,
+`robot_bringup/launch/collision_monitor.launch.py`, new `docs/safety/hazard-analysis.md`,
 `.github/workflows/**`, `robot_telemetry/**`, `robot_console/**`, `web_ui/**`,
 `robot_voice/**`.
 
@@ -277,7 +277,7 @@ check is enough to make the headline `VERDICT: PASS` and the exit code `0`.
 
 The first recording proves it: the emergency stop was never touched, the latch
 check reported `NOT EXERCISED`, and the report still opened with
-`VERDICT: PASS` and exited `0`. `docs/safety-test-procedure.md` says a check
+`VERDICT: PASS` and exited `0`. `docs/safety/safety-test-procedure.md` says a check
 the run never put to the test "is deliberately not a pass" - the body of the
 report honours that, the two things a reviewer or a CI job actually reads do
 not. A recording where nobody pressed stop should not be attachable to a pull
@@ -344,7 +344,7 @@ agents worked in parallel on disjoint files; the integrator did the rest.
 | Task | Outcome |
 |---|---|
 | 1. Safety topology regression test | `robot_bringup/tests/test_cmd_vel_topology.py`. Globs every launch file in the workspace rather than naming them, so a launch file added in a package that does not exist yet is covered. 19 of 19 seeded mistakes were caught by a mutation harness. |
-| 2. Hazard analysis | `docs/hazard-analysis.md`. Eighteen hazards, severity-rated, each with what catches it and what does not. |
+| 2. Hazard analysis | `docs/safety/hazard-analysis.md`. Eighteen hazards, severity-rated, each with what catches it and what does not. |
 | 3. Nav2 Collision Monitor | `config/collision_monitor.yaml`, `launch/collision_monitor.launch.py`, `tests/test_collision_monitor.py`. Zones derived from `BaseFootprint` and the gate's own distances; 6 of 6 seeded mistakes caught. |
 | 4. The green-verdict defect | Fixed. `Verdict.INCOMPLETE`, exit code 4: any `NOT_EXERCISED` finding now keeps the headline off green. |
 

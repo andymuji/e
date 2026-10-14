@@ -136,7 +136,7 @@ class ScanToMapTests(unittest.TestCase):
         self.assertEqual(self.render(binary=True).cells, self.render(binary=False).cells)
 
 
-REAL_SCAN = Path(__file__).resolve().parents[5] / "docs" / "runs" / "10_5_2026.glb"
+REAL_SCAN = Path(__file__).resolve().parents[5] / "docs" / "runs" / "room-scan-2026-10-05.glb"
 
 
 def floor(x0, z0, x1, z1, step=0.1, tilt=0.0, y=0.0):
@@ -305,7 +305,7 @@ class ObstacleReportTests(unittest.TestCase):
         self.assertAlmostEqual(found["floor"]["area_m2"], 3.4, delta=0.1)
         self.assertEqual(len(found["floor"]["outline"]), 4)
 
-    @unittest.skipUnless(REAL_SCAN.exists(), "the 10_5_2026 phone scan is not checked out")
+    @unittest.skipUnless(REAL_SCAN.exists(), "the 2026-10-05 phone scan is not checked out")
     def test_real_scan_has_five_balls_the_lidar_cannot_see(self):
         found = report(REAL_SCAN)
         balls = [(-0.47, 0.19), (0.15, 0.40), (-0.20, -0.22), (0.29, -0.27), (0.05, -0.58)]

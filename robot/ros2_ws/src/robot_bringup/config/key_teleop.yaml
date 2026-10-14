@@ -7,7 +7,7 @@
 # repeating the key, and it lurches.
 #
 # Its output topic, key_vel, must be remapped to cmd_vel_requested wherever it
-# is started; teleop.launch.py and docs/getting-started.md both do.
+# is started; teleop.launch.py and docs/guides/getting-started.md both do.
 key_teleop:
   ros__parameters:
     # The safety gate takes a plain Twist.

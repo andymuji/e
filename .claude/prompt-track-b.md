@@ -41,7 +41,7 @@ files — they are theirs, and editing them will cause a merge conflict:**
 - `robot/ros2_ws/src/robot_bringup/launch/teleop.launch.py`
 - `robot/ros2_ws/src/robot_bringup/config/nav2.yaml`
 - `robot/ros2_ws/src/robot_bringup/maps/**`
-- `docs/getting-started.md`
+- `docs/guides/getting-started.md`
 
 **These are read-only for you, permanently:**
 
@@ -119,13 +119,13 @@ If you find one is tested but weakly, strengthen it in your new file and say so.
 ### Task 2 — the hazard analysis
 
 `README.md` lists "write the hazard analysis and emergency-stop test procedure"
-as a founding task. The procedure exists at `docs/safety-test-procedure.md`.
-The hazard analysis does not. Write it as `docs/hazard-analysis.md`.
+as a founding task. The procedure exists at `docs/safety/safety-test-procedure.md`.
+The hazard analysis does not. Write it as `docs/safety/hazard-analysis.md`.
 
 This is a document, not code. It should identify what can go wrong with a
 robot moving around a frail person, and for each hazard: how it happens, what
 in the system currently catches it, and what does not. Read
-`docs/safety-test-procedure.md` and `docs/decisions/0001-ros-baseline.md`
+`docs/safety/safety-test-procedure.md` and `docs/decisions/0001-ros-baseline.md`
 first so you are consistent with them.
 
 Be honest about gaps rather than reassuring. Things genuinely not yet handled

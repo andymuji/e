@@ -25,7 +25,7 @@ software. Do not put the wheels on the floor until the physical emergency
 stop is wired so that pressing it cuts the 12 V supply to all four BTS7960
 boards, independently of the Pico and the Pi - and then only with the tether,
 the marked exclusion zone and the second person holding the stop that
-`AGENTS.md` and `docs/safety-test-procedure.md` require. Until then, run it
+`AGENTS.md` and `docs/safety/safety-test-procedure.md` require. Until then, run it
 with the chassis raised so no wheel touches anything.
 
 ## Files

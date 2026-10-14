@@ -18,7 +18,7 @@ What it does, in the same shape as world_to_map:
 glTF is y-up and in metres. The map is z-up, so a glTF point (x, y, z) lands
 at map (x, -z) at height y. The map's origin is the export's own origin, not
 where the scan started or where the floor is: Polycam centres the export on
-the scan's bounding box (10_5_2026.glb runs from -1.20 to +1.20 m in x and
+the scan's bounding box (room-scan-2026-10-05.glb runs from -1.20 to +1.20 m in x and
 -0.09 to +0.09 m in height), so map (0, 0) is the middle of what was scanned.
 """
 

@@ -11,7 +11,7 @@ from its lidar. Every drive command passes through the safety gate
 - the recording of the mapping run and its `robot_telemetry` report, which
   must say **`VERDICT: PASS`** (see
   [what the report should say](#what-the-recording-report-should-say));
-- the filled-in [stop-test form](runs/stop-test-form.md) from Stage 5, every
+- the filled-in [stop-test form](../runs/stop-test-form.md) from Stage 5, every
   row a pass.
 
 **Not in this proof of concept:** driving to a goal by itself (Nav2), voice,
@@ -63,7 +63,7 @@ the car and scanned a 2.4 × 2.5 m patch of floor with five balls on it,
 13–15 cm tall. It saw the balls clearly. Two lessons came out of it:
 
 - **It re-confirms hazard H-02.** The
-  [hazard analysis](hazard-analysis.md#h-02-the-robot-hits-something-the-lidar-cannot-see--critical)
+  [hazard analysis](../safety/hazard-analysis.md#h-02-the-robot-hits-something-the-lidar-cannot-see--critical)
   already says a single-height lidar is blind to anything below its beam.
   If the lidar sits at the 19.5 cm placeholder height, it misses all five
   balls; at 12 cm it would see them. **The height is a placeholder from the
@@ -99,7 +99,7 @@ and the tests use it). Before scanning anyone else's home, ask them, and see
    ```bash
    PYTHONPATH=robot/ros2_ws/src/robot_bringup python3 -m robot_bringup.scan_to_map \
      docs/runs/2026-10-xx-room-scan.glb -f robot/ros2_ws/src/robot_bringup/maps/living_room \
-     --report docs/room-viewer/room.json
+     --report robot/ros2_ws/src/robot_bringup/maps/living_room.json
    ```
 
    `--height` sets the lidar's height in metres (default 0.195, the
@@ -109,24 +109,16 @@ and the tests use it). Before scanning anyone else's home, ask them, and see
 6. Open `living_room.pgm` to check it: black is walls and furniture, white is
    floor, grey is never seen. Commit the map and the report — **not the
    scan**. The map and report hold no photos, only shapes and sizes.
-7. To see it on the website, ask Claude to republish the room viewer
-   (`docs/room-viewer/index.html`) with the new scan. The page has a slider
-   for trying different lidar heights. Check who it's shared with in the
-   page's Share menu: it should be private.
-
 **Demo it.** To show all of this live from a terminal, with no website:
 
 ```bash
 robot/scripts/demo-room.sh docs/runs/demo-room-scan.zip
 ```
 
-It converts the scan, lists what stands on the floor, opens the map as a
-picture, and serves the 3D room page at `http://localhost:8000` until
-Ctrl+C. It needs only Python 3. On a Mac it opens both in Preview and the
-browser. In a Codespace there is no screen, so it prints the links instead
-and VS Code offers "Open in Browser". Everything it makes is deleted when it
-stops, and nothing goes into the repository. It needs an internet connection
-for the 3D drawing library, so do a practice run on the demo's Wi-Fi.
+It turns the scan into a floor plan and opens it in Preview: walls in
+black, each obstacle numbered in red with its height, and the room's size
+along the edges. It needs Python 3 and Pillow (`pip3 install pillow`), and
+no internet. The picture goes in a temporary folder, never the repository.
 
 ---
 
@@ -149,7 +141,7 @@ wired and passed its tests in Stage 5:
   is pulled out whenever you walk away.
 
 And once the stop works, every floor run still needs all three of these
-([safety-test-procedure.md](safety-test-procedure.md)):
+([safety-test-procedure.md](../safety/safety-test-procedure.md)):
 
 - **a tether** — the robot is on a leash, and pulling it hard cuts the
   motors;
@@ -344,7 +336,7 @@ to the Pico's **3.3 V** pin, not 5 V. Then the drivers read the Pico's 3.3 V
 signals reliably, with no level shifters in between.
 
 Every battery-current wire is 12 AWG. Every step of the wiring, with a check
-after each, is in [wiring-checklist.md](wiring-checklist.md).
+after each, is in [wiring-checklist.md](../safety/wiring-checklist.md).
 
 ## How it fits together
 
@@ -425,7 +417,7 @@ assume, and a room can be mapped without sideways driving.
 ### What the recording report should say
 
 `base_mapping.launch.py` records the run. Afterwards, `analyse_run` checks the
-recording ([what the report checks](safety-test-procedure.md#what-the-report-checks))
+recording ([what the report checks](../safety/safety-test-procedure.md#what-the-report-checks))
 and gives one verdict. With the gate in the path, all four of its checks
 can be answered, so this run can reach **`PASS`**, unlike the old RC-car plan.
 
@@ -521,7 +513,7 @@ Needs: the stop parts from the still-to-buy list. **The base sits on a box
 with all four wheels off the ground for this whole stage.** The Pico isn't
 connected yet, so nothing can command the motors.
 
-Follow [wiring-checklist.md](wiring-checklist.md), sections 1 to 4.
+Follow [wiring-checklist.md](../safety/wiring-checklist.md), sections 1 to 4.
 
 - [ ] Do the on-arrival checks: battery terminals, fuse sizes, relay coil
       voltage, stop button contacts.
@@ -538,7 +530,7 @@ Follow [wiring-checklist.md](wiring-checklist.md), sections 1 to 4.
 Needs: the Pico program, `robot_base`, `base_mapping.launch.py`. **Wheels
 still in the air.** The second person holds the stop button throughout.
 
-Follow [wiring-checklist.md](wiring-checklist.md), sections 5 and 6.
+Follow [wiring-checklist.md](../safety/wiring-checklist.md), sections 5 and 6.
 
 - [ ] Check what voltage the wheel sensors use. If they need 5 V, fit the
       level shifters first.
@@ -613,9 +605,9 @@ is [still to decide](#open-questions); measure the spacing anyway.
 
 ### Stage 5 — Stop tests
 
-Every step of [safety-test-procedure.md](safety-test-procedure.md), and the
+Every step of [safety-test-procedure.md](../safety/safety-test-procedure.md), and the
 physical stop's own tests. **All of them with the wheels in the air first,
-then on the floor.** Print [the stop-test form](runs/stop-test-form.md) and
+then on the floor.** Print [the stop-test form](../runs/stop-test-form.md) and
 fill it in as you go.
 
 - [ ] Record every test (`robot_telemetry`).
@@ -748,8 +740,8 @@ These change what gets built or bought. Answer them before Stage 2.
   RC car it was forbidden, because a toy car's numbers would have become the
   real robot's safety distances. This base is the robot, so its numbers are
   the right ones.
-- **New:** the [stop-test form](runs/stop-test-form.md) and the
-  [wiring checklist](wiring-checklist.md).
+- **New:** the [stop-test form](../runs/stop-test-form.md) and the
+  [wiring checklist](../safety/wiring-checklist.md).
 
 ## What changed on 2026-09-28, and why
 
@@ -809,5 +801,5 @@ which are chosen for this battery.
   braking hard with the payload raised.
 - **Battery and fuse sizing** from the motors' measured peak and stall
   current, with margin.
-- **The full [safety-test-procedure.md](safety-test-procedure.md)**, again,
+- **The full [safety-test-procedure.md](../safety/safety-test-procedure.md)**, again,
   on the real robot.

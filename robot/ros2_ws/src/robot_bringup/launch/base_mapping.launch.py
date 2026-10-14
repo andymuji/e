@@ -59,7 +59,7 @@ SAFETY. There is no physical emergency stop on this base yet. Until one is
 wired to cut the 12 V motor supply, run this only with the chassis raised so
 no wheel touches anything. On the floor, only with the tether, the marked
 exclusion zone and a second person holding the stop, per AGENTS.md and
-docs/safety-test-procedure.md. The software stop and the Pico's timeout are
+docs/safety/safety-test-procedure.md. The software stop and the Pico's timeout are
 secondary to that button, not a substitute for it.
 """
 

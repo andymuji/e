@@ -8,7 +8,7 @@ navigated, and a map computed from the world file is at least honest about
 what it is - exact geometry, no sensor, no drift, no unseen corners.
 
 Replace the committed map with a driven one as soon as a simulator run can
-be completed; see docs/getting-started.md.
+be completed; see docs/guides/getting-started.md.
 
 Two differences from a SLAM map matter in use:
 

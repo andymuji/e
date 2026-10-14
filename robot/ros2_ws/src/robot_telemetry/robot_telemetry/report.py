@@ -103,7 +103,7 @@ class SafetyReport:
             f"VERDICT: {self.verdict.value}  -  {_verdict_meaning(self.verdict)}",
             "",
             "This report is about this one recording. It is not a substitute for",
-            "the physical emergency-stop test in docs/safety-test-procedure.md.",
+            "the physical emergency-stop test in docs/safety/safety-test-procedure.md.",
             "",
             "-" * WIDTH,
             "WHAT WAS CHECKED",

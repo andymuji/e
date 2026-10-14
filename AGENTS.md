@@ -6,7 +6,7 @@
      copy of these rules into it, or the two will drift and the copy will be
      the one missing a safety rule. -->
 
-ROS 2-based assistive robot for elder care. See [docs/decisions/0001-ros-baseline.md](docs/decisions/0001-ros-baseline.md) for architecture decisions and [docs/safety-test-procedure.md](docs/safety-test-procedure.md) before running anything on hardware.
+ROS 2-based assistive robot for elder care. See [docs/decisions/0001-ros-baseline.md](docs/decisions/0001-ros-baseline.md) for architecture decisions and [docs/safety/safety-test-procedure.md](docs/safety/safety-test-procedure.md) before running anything on hardware.
 
 ## Baseline
 

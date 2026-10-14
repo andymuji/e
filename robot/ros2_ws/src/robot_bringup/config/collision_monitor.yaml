@@ -36,7 +36,7 @@
 # The gate takes the nearest obstacle in EVERY direction and compares it to
 # one distance. That is deliberately blunt and it is the right last line, but
 # it means the robot stops for a wall beside it exactly as it stops for a
-# person in front of it (see docs/hazard-analysis.md, H-04).
+# person in front of it (see docs/safety/hazard-analysis.md, H-04).
 #
 # The zones below are directional: they cover the corridor the robot actually
 # sweeps when driving forward. That is the shape the robot needs to get

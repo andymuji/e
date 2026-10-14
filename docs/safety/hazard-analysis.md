@@ -4,7 +4,7 @@
 - Date: 2026-09-22
 - Covers: the software in this repository, as it stands today
 - Companion documents: [safety-test-procedure.md](safety-test-procedure.md),
-  [decisions/0001-ros-baseline.md](decisions/0001-ros-baseline.md)
+  [decisions/0001-ros-baseline.md](../decisions/0001-ros-baseline.md)
 
 ## What this document is
 
@@ -94,7 +94,7 @@ a child — any of these can be entirely below the beam. A table top or a
 person's outstretched arm can be entirely above it.
 
 The first phone scan of a floor (2026-10-05, see
-[poc-plan.md](poc-plan.md#map-the-room-with-the-phone-before-the-lidar))
+[poc-plan.md](../guides/poc-plan.md#map-the-room-with-the-phone-before-the-lidar))
 showed five 13–15 cm balls that a lidar at the placeholder height would all
 miss. The scan is a survey of one moment and clutter moves, so it is not a
 control for this hazard; a floor-facing sensor on the robot would be.
@@ -290,7 +290,7 @@ computer freezes, if the motor driver latches its last command, or if the
 software stop message never arrives, none of the above helps.
 
 **This is the largest single gap in the project.**
-`docs/safety-test-procedure.md` already refuses to accept a software test as a
+`docs/safety/safety-test-procedure.md` already refuses to accept a software test as a
 substitute, and `decisions/0001-ros-baseline.md` records the software stop as
 explicitly secondary. The hardware it is secondary to has not been bought.
 
@@ -435,7 +435,7 @@ the numbers are *consistent*, not that they are *right*. Consistency with a
 fiction is still fiction.
 
 **What must happen.** Measure the base, set `measured: true`, re-derive, and
-re-run the full procedure in `docs/safety-test-procedure.md`. This is the
+re-run the full procedure in `docs/safety/safety-test-procedure.md`. This is the
 gating item for all hardware work and the reason the project is not blocked on
 anything else.
 
@@ -474,7 +474,7 @@ and a refusal does not cancel a trip that is already running. It is now a
 left untouched, because a half-heard word should not be able to engage a latch
 that only an operator can release. The same handling now applies in the
 operator console. The reasoning is recorded in
-[decisions/0002-voice-provider.md](decisions/0002-voice-provider.md).
+[decisions/0002-voice-provider.md](../decisions/0002-voice-provider.md).
 
 **Not caught.** A stop that is not heard at all — over a television, through a
 closed door, or from a person who has fallen and cannot raise their voice.
@@ -580,6 +580,6 @@ else.
   a different analysis.
 - Privacy, data protection and recording consent for the voice and camera
   paths. Real and necessary, but not a physical-injury hazard, so it has its
-  own document: [privacy.md](privacy.md).
+  own document: [privacy.md](../guides/privacy.md).
 - Medical decisions of any kind. This robot fetches things and moves around; it
   is not a medical device and must not be described as one.

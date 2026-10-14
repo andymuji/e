@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Set up the Raspberry Pi 4 for Stage 1 of docs/poc-plan.md: ROS 2 Jazzy
+# Set up the Raspberry Pi 4 for Stage 1 of docs/guides/poc-plan.md: ROS 2 Jazzy
 # (ros-base), LDRobot's LD14P lidar driver, Cartographer, the recorder,
 # foxglove_bridge, and this repository's workspace.
 #
 # WRITTEN, NOT YET RUN ON A PI. The lidar driver's build was checked against
-# Jazzy on an x86 machine only. See docs/getting-started.md, "Set up the Pi".
+# Jazzy on an x86 machine only. See docs/guides/getting-started.md, "Set up the Pi".
 #
 # Usage, as your normal user (it asks for sudo itself):
 #   robot/scripts/setup-pi.sh [ROS_DOMAIN_ID]      default 42, allowed 1-101

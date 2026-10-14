@@ -1,9 +1,9 @@
 # Stop-test results form
 
 Print this, fill it in by hand during Stage 5 of the
-[proof-of-concept plan](../poc-plan.md), and commit a scan or photo of it to
+[proof-of-concept plan](../guides/poc-plan.md), and commit a scan or photo of it to
 `docs/runs/` next to the recording reports. One form per session. It covers
-every step of [safety-test-procedure.md](../safety-test-procedure.md) (marked
+every step of [safety-test-procedure.md](../safety/safety-test-procedure.md) (marked
 "Step 1" to "Step 7") and the physical stop's own tests.
 
 ## The rule

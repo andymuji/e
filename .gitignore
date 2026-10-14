@@ -18,8 +18,8 @@ log/
 
 # Phone scans of rooms (Polycam .glb, or the .zip it is sent in). The
 # repository is public, and a textured scan shows inside someone's home: see
-# docs/privacy.md. The 2026-10-05 test patch is bare floor and balls, and the
+# docs/guides/privacy.md. The 2026-10-05 test patch is bare floor and balls, and the
 # tests use it.
 docs/runs/*.glb
 docs/runs/*.zip
-!docs/runs/10_5_2026.glb
+!docs/runs/room-scan-2026-10-05.glb

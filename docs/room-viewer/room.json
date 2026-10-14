@@ -1,5 +1,5 @@
 {
- "source": "10_5_2026.glb",
+ "source": "room-scan-2026-10-05.glb",
  "units": "metres; map frame x = glTF x, y = -glTF z; heights above the fitted floor",
  "lidar_height": 0.195,
  "trip_hazard_max": 0.3,

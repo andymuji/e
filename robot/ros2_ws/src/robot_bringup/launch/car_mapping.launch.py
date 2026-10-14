@@ -6,7 +6,7 @@
 Starts the LD14P lidar driver, Cartographer building a map from the lidar
 alone, the recorder, and Foxglove (watch-only, via viewer.launch.py). All on
 the real clock: there is no simulator, and slam.launch.py, which waits for
-one, would wait forever here. See docs/poc-plan.md.
+one, would wait forever here. See docs/guides/poc-plan.md.
 
 Run it in a foreground terminal (tmux on the Pi, so a dropped ssh session
 does not end the run) and stop it with Ctrl-C. Killed any other way, the

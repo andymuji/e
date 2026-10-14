@@ -118,7 +118,7 @@ class VerdictTests(unittest.TestCase):
         self.assertIn("topic graph was not", report.render())
 
     def test_a_run_with_no_safety_gate_is_never_a_pass(self):
-        """The RC car in docs/poc-plan.md: lidar, tf and a map, and no gate.
+        """The RC car in docs/guides/poc-plan.md: lidar, tf and a map, and no gate.
 
         Its remote drives the motors directly, so there is no /cmd_vel,
         /safety_state or stop topic for any check to read. The plan promises

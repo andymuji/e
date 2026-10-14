@@ -15,11 +15,11 @@ The eventual robot is a separate phase: it must travel between multiple rooms an
 ## Read the project first
 
 1. Read `AGENTS.md` and follow its safety rules.
-2. Read `docs/poc-plan.md`, `docs/hazard-analysis.md`, `docs/safety-test-procedure.md`, `docs/decisions/0001-ros-baseline.md`, and `docs/README.md`.
+2. Read `docs/guides/poc-plan.md`, `docs/safety/hazard-analysis.md`, `docs/safety/safety-test-procedure.md`, `docs/decisions/0001-ros-baseline.md`, and `docs/README.md`.
 3. Inspect the relevant existing ROS packages and configuration only to understand hardware interfaces and constraints. Do not modify source code, configuration, derived safety distances, or hardware parameters.
 4. Check the git working tree before editing. Preserve all pre-existing user changes.
 
-The existing `docs/poc-plan.md` shopping list is a starting point, not verified truth. It currently describes a custom four-motor chassis, lidar, motor drivers, battery, Pico, and wiring, but gives approximate marketplace prices, excludes shipping, and contains a possible inconsistency about whether level shifters are required. Reconcile these against actual specifications and the user's clarified PoC: a remotely controlled car maps one room. Do not assume this means the currently listed mecanum chassis unless the project evidence supports that choice.
+The existing `docs/guides/poc-plan.md` shopping list is a starting point, not verified truth. It currently describes a custom four-motor chassis, lidar, motor drivers, battery, Pico, and wiring, but gives approximate marketplace prices, excludes shipping, and contains a possible inconsistency about whether level shifters are required. Reconcile these against actual specifications and the user's clarified PoC: a remotely controlled car maps one room. Do not assume this means the currently listed mecanum chassis unless the project evidence supports that choice.
 
 ## ECC and delegation
 
@@ -62,7 +62,7 @@ The required cap is the sum of the selected quantities' item prices plus shippin
 
 ## Deliverable
 
-Prepare a concise, evidence-backed replacement or revision for `docs/poc-plan.md`'s parts/shopping-list section. Preserve the existing staged plan and safety warnings unless evidence requires correcting them. Include:
+Prepare a concise, evidence-backed replacement or revision for `docs/guides/poc-plan.md`'s parts/shopping-list section. Preserve the existing staged plan and safety warnings unless evidence requires correcting them. Include:
 
 1. A short conclusion stating whether a complete, working, shipping-verified PoC BOM is below $310. If not, say so plainly and show the smallest technically honest alternative or the unresolved blocker; never drop required parts to manufacture a passing total.
 2. A BOM table with part/job, exact selected product and variant, quantity, owner status (buy/already owned/unknown), item price, shipping, delivered line total, seller, source link, and compatibility/spec evidence.
@@ -70,6 +70,6 @@ Prepare a concise, evidence-backed replacement or revision for `docs/poc-plan.md
 4. A concise list of unresolved specifications and questions, with who must verify each one and why it matters.
 5. A short correction log for discrepancies found in the old list, especially omitted shipping, estimated prices, ambiguous RC-car-vs-custom-chassis scope, optional level shifters, and safety-critical exclusions.
 
-Do not edit files until research, independent checks, and arithmetic are complete. Then make only the focused documentation edit to `docs/poc-plan.md` if evidence is sufficient. Do not commit. If location or any critical compatibility/shipping evidence is missing, ask the user or mark the BOM unverified instead of guessing. After editing, inspect the diff and run no hardware commands or tests that could move a robot.
+Do not edit files until research, independent checks, and arithmetic are complete. Then make only the focused documentation edit to `docs/guides/poc-plan.md` if evidence is sufficient. Do not commit. If location or any critical compatibility/shipping evidence is missing, ask the user or mark the BOM unverified instead of guessing. After editing, inspect the diff and run no hardware commands or tests that could move a robot.
 
 ---

@@ -3,7 +3,7 @@
 Reports from `robot_telemetry`'s `analyse_run`, kept as committed evidence
 rather than as claims in a commit message. Each one is about **one recording**
 and is not a substitute for the physical test in
-[../safety-test-procedure.md](../safety-test-procedure.md).
+[../safety/safety-test-procedure.md](../safety/safety-test-procedure.md).
 
 Both were produced on 2026-09-21 against the Gazebo simulation running
 headless, with the safety gate enabled. No hardware was involved, and no
@@ -16,7 +16,7 @@ still exist.
 ## `stop-test-form.md`
 
 Not a run: the blank form for the stop tests in Stage 5 of
-[../poc-plan.md](../poc-plan.md). Print it, fill it in by hand, and commit a
+[../poc-plan.md](../guides/poc-plan.md). Print it, fill it in by hand, and commit a
 scan or photo of the filled-in form here, next to the recording reports.
 
 ## `idle-gate-check-20260921-164231.txt`

@@ -15,7 +15,7 @@ A robot that will one day drive around the home of an elderly person and fetch
 things for them. Right now it is software and a box of parts. The parts for a
 small first test base were bought in September 2026, but **nothing is
 assembled, nothing has been measured, and no robot has moved.** What happens
-next is in [the proof-of-concept plan](docs/poc-plan.md).
+next is in [the proof-of-concept plan](docs/guides/poc-plan.md).
 
 ### What actually works today
 
@@ -71,10 +71,10 @@ has found a way around it.
 
 | If you want to know… | Read |
 |---|---|
-| What could go wrong, and what we do about it | [docs/hazard-analysis.md](docs/hazard-analysis.md) |
-| What is being built first, what's still to buy, and in what order | [docs/poc-plan.md](docs/poc-plan.md) |
-| How to build and run it yourself | [docs/getting-started.md](docs/getting-started.md) |
-| How the robot must be tested before anyone stands near it | [docs/safety-test-procedure.md](docs/safety-test-procedure.md) |
+| What could go wrong, and what we do about it | [docs/safety/hazard-analysis.md](docs/safety/hazard-analysis.md) |
+| What is being built first, what's still to buy, and in what order | [docs/guides/poc-plan.md](docs/guides/poc-plan.md) |
+| How to build and run it yourself | [docs/guides/getting-started.md](docs/guides/getting-started.md) |
+| How the robot must be tested before anyone stands near it | [docs/safety/safety-test-procedure.md](docs/safety/safety-test-procedure.md) |
 | What was actually observed on real runs | [docs/runs/](docs/runs/README.md) |
 | Why the big technical choices were made | [docs/decisions/](docs/decisions/) |
 
@@ -218,7 +218,7 @@ Track each vertical slice as an issue with acceptance tests. Use pull requests f
 Suggested first issues:
 
 1. Choose ROS 2 distribution, simulator, language, and license.
-2. ~~Write the hazard analysis and emergency-stop test procedure.~~ **Completed:** the procedure is in [docs/safety-test-procedure.md](docs/safety-test-procedure.md) and the hazard analysis in [docs/hazard-analysis.md](docs/hazard-analysis.md). The analysis is deliberately blunt about what is not handled — no physical emergency stop, no drop-off sensing, and no measured robot.
+2. ~~Write the hazard analysis and emergency-stop test procedure.~~ **Completed:** the procedure is in [docs/safety/safety-test-procedure.md](docs/safety/safety-test-procedure.md) and the hazard analysis in [docs/safety/hazard-analysis.md](docs/safety/hazard-analysis.md). The analysis is deliberately blunt about what is not handled — no physical emergency stop, no drop-off sensing, and no measured robot.
 3. ~~Implement the mock obstacle-stop controller with unit tests.~~ **Completed:** the first hardware-independent safety slice is in `robot/ros2_ws/src/robot_safety`.
 4. Select the flat-floor base, sensors, compute board, and power system.
 5. ~~Create the ROS 2 workspace and a minimal simulated house.~~ **Completed:** `robot_description` holds a differential-drive URDF with a 2D lidar and IMU, `robot_bringup` holds the `test_room` Gazebo Harmonic world and the launch files that start the simulator, the topic bridge, and the safety gate. The URDF dimensions are placeholders pending the hardware choice.
@@ -240,7 +240,7 @@ Run its unit tests with:
 PYTHONPATH=robot/ros2_ws/src/robot_safety python3 -m unittest discover -s robot/ros2_ws/src/robot_safety/tests -v
 ```
 
-The physical test procedure is documented in [docs/safety-test-procedure.md](docs/safety-test-procedure.md), and the hazards it is meant to catch are enumerated in [docs/hazard-analysis.md](docs/hazard-analysis.md). The controller has since been wrapped in the `robot_safety` ROS 2 package and observed running live; the gate described here is the same code the node runs.
+The physical test procedure is documented in [docs/safety/safety-test-procedure.md](docs/safety/safety-test-procedure.md), and the hazards it is meant to catch are enumerated in [docs/safety/hazard-analysis.md](docs/safety/hazard-analysis.md). The controller has since been wrapped in the `robot_safety` ROS 2 package and observed running live; the gate described here is the same code the node runs.
 
 ### Simulation
 
@@ -327,4 +327,4 @@ In simulation and in a controlled flat-floor test, a robot stops before a config
 
 The first implementation targets **Ubuntu 24.04, ROS 2 Jazzy, and Gazebo Harmonic**. The repository now contains nine installable ROS 2 Python packages and a fail-closed `robot_safety` command gate.
 
-Start with [the build and run guide](docs/getting-started.md). The rationale and safety consequences are recorded in [ADR 0001](docs/decisions/0001-ros-baseline.md).
+Start with [the build and run guide](docs/guides/getting-started.md). The rationale and safety consequences are recorded in [ADR 0001](docs/decisions/0001-ros-baseline.md).

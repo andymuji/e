@@ -2,29 +2,37 @@
 
 A map of this folder, in the order worth reading them.
 
+How it is laid out:
+
+- `safety/` — the hazard analysis, the stop-test procedure, the wiring checklist.
+- `guides/` — getting started, the proof-of-concept plan, privacy.
+- `runs/` — recorded runs, the paper stop-test form, and the room scans.
+- `decisions/` — why the big choices were made.
+- `foxglove/` — the saved layout for watching the robot in Foxglove.
+
 ## Read these in order
 
-1. **[hazard-analysis.md](hazard-analysis.md)** — what a robot moving around a
+1. **[safety/hazard-analysis.md](safety/hazard-analysis.md)** — what a robot moving around a
    frail person can do to them, and which of those things the software
    currently prevents. Written to be uncomfortable rather than reassuring. If
    you read one document here, read this one.
 
-2. **[safety-test-procedure.md](safety-test-procedure.md)** — what has to be
+2. **[safety/safety-test-procedure.md](safety/safety-test-procedure.md)** — what has to be
    done, and written down, before anyone stands near a moving robot. Also
    explains how a run is recorded and what the resulting report does and does
    not prove.
 
-3. **[getting-started.md](getting-started.md)** — how to build the code and
+3. **[guides/getting-started.md](guides/getting-started.md)** — how to build the code and
    run the simulation yourself. This is the one that assumes you are at a
    terminal.
 
 ## The plan for the first real robot
 
-**[poc-plan.md](poc-plan.md)** — the proof of concept: drive the robot around
+**[guides/poc-plan.md](guides/poc-plan.md)** — the proof of concept: drive the robot around
 one room by remote control and map it. The parts, how they connect, and the
 stages in order, each ending in something you can see working.
 
-**[wiring-checklist.md](wiring-checklist.md)** — wiring the battery, the
+**[safety/wiring-checklist.md](safety/wiring-checklist.md)** — wiring the battery, the
 emergency stop, the motor drivers and the Pico, one check per step, with the
 wheels in the air throughout.
 
@@ -52,7 +60,7 @@ the choice was made rather than reconstructed afterwards.
   every braking figure in this repository is a placeholder, which the hazard
   analysis records as its own hazard (H-14).
 - A full privacy and data-protection analysis for the voice and camera paths.
-  [privacy.md](privacy.md) sets the basic rules (consent first, scans never
+  [guides/privacy.md](guides/privacy.md) sets the basic rules (consent first, scans never
   in git); the analysis itself is still needed.
 - Anything about stair climbing beyond the note that it is a separate machine
   needing its own hazard analysis.

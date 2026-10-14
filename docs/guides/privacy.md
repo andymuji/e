@@ -12,7 +12,7 @@ tools record shows the inside of those homes, and this repository is
 - **Recordings** from `robot_telemetry` and the mapping launches (`.mcap`
   bags), once a camera or microphone is added.
 - **Voice** audio and transcripts from `robot_voice`. The consent conditions
-  for those are in [decision 0002](decisions/0002-voice-provider.md).
+  for those are in [decision 0002](../decisions/0002-voice-provider.md).
 
 Maps (`.pgm`/`.yaml`) and the obstacle report (`room.json`) hold shapes and
 sizes only. They still show a room's layout, so treat a real home's map as
@@ -23,7 +23,7 @@ personal too, but they carry no photos.
 1. **Ask first.** Before scanning or recording in anyone else's home, tell
    them what is captured, where it goes and who can see it, and get a yes.
 2. **Scans never go into git.** `.gitignore` excludes `docs/runs/*.glb`. The
-   one exception, `docs/runs/10_5_2026.glb`, is a test patch of bare floor
+   one exception, `docs/runs/room-scan-2026-10-05.glb`, is a test patch of bare floor
    and balls that the tests need.
 3. **Keep scans on your own machine** or in private storage you control.
 4. **Check who can open the map web page.** Anyone it's shared with sees the
