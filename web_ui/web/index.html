@@ -73,14 +73,14 @@
     <section class="console-section" aria-labelledby="voice-heading">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">VOICE GATEWAY</p>
-          <h2 id="voice-heading">Say a command</h2>
+          <p class="eyebrow">CHAT AND COMMANDS</p>
+          <h2 id="voice-heading">Talk to the console</h2>
         </div>
-        <p class="selection-note">Typed transcripts take the same path as speech. Only approved destinations become goals.</p>
+        <p class="selection-note">Robot commands are checked locally. FreeLLMAPI answers other questions but cannot control the robot.</p>
       </div>
       <form class="voice-form" id="voice-form">
-        <label class="visually-hidden" for="voice-input">Voice transcript</label>
-        <input id="voice-input" type="text" placeholder="go to the kitchen" autocomplete="off">
+        <label class="visually-hidden" for="voice-input">Message</label>
+        <input id="voice-input" type="text" placeholder="Ask a question or say go to the kitchen" autocomplete="off">
         <button type="submit">Send</button>
       </form>
       <p class="voice-response" id="voice-response" aria-live="polite">The robot has not heard a command yet.</p>

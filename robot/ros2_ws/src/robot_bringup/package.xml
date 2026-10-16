@@ -33,6 +33,7 @@
   <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>robot_telemetry</exec_depend>
   <exec_depend>robot_voice</exec_depend>
+  <exec_depend>rf2o_laser_odometry</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>rviz2</exec_depend>
@@ -41,8 +42,9 @@
   <exec_depend>teleop_twist_keyboard</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
-  <!-- car_mapping.launch.py also needs ldlidar_ros2, which is not in rosdep:
-       build it from source (see that launch file) rather than list it here. -->
+  <!-- car_mapping.launch.py needs ldlidar_ros2 and ld14p_mapping.launch.py needs
+       ldlidar_sl_ros2; neither is in rosdep, so
+       build them from source (see each launch file) rather than list them here. -->
 
   <test_depend>ament_pytest</test_depend>
 

@@ -36,6 +36,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode
 from launch_ros.event_handlers import OnStateTransition
 from launch_ros.events.lifecycle import ChangeState
+from launch_ros.parameter_descriptions import ParameterValue
 from lifecycle_msgs.msg import Transition
 
 
@@ -43,6 +44,9 @@ def generate_launch_description() -> LaunchDescription:
     bringup_share = Path(get_package_share_directory("robot_bringup"))
 
     autostart = LaunchConfiguration("autostart")
+    use_sim_time = ParameterValue(
+        LaunchConfiguration("use_sim_time"), value_type=bool
+    )
 
     slam_toolbox = LifecycleNode(
         package="slam_toolbox",
@@ -53,7 +57,7 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             LaunchConfiguration("params_file"),
             {
-                "use_sim_time": True,
+                "use_sim_time": use_sim_time,
                 # Mapping is not part of the navigation lifecycle group.
                 "use_lifecycle_manager": False,
             },
@@ -73,6 +77,11 @@ def generate_launch_description() -> LaunchDescription:
                 "Configure and activate slam_toolbox on start. False leaves it "
                 "in `unconfigured` for manual lifecycle transitions."
             ),
+        ),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="true",
+            description="Use /clock for simulation; set false for physical sensors.",
         ),
 
         slam_toolbox,
