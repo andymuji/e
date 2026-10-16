@@ -8,6 +8,7 @@ subscription's QoS matches a latched map.
 
 from pathlib import Path
 import tempfile
+import time
 import unittest
 
 try:
@@ -116,12 +117,20 @@ class ConsoleNodeTests(unittest.TestCase):
     def test_the_console_publishes_no_velocity(self) -> None:
         # The safety rule this node lives under: only robot_safety publishes
         # /cmd_vel, and the console is a motion source, never an authority.
-        published = [
-            topic
-            for topic, _ in self.node.get_publisher_names_and_types_by_node(
-                self.node.get_name(), self.node.get_namespace()
-            )
-        ]
+        # Graph discovery is asynchronous: on a slow CI runner the list is
+        # still empty at first, and an empty list would pass the NotIn checks
+        # vacuously. Wait for it to fill.
+        deadline = time.monotonic() + 5.0
+        while True:
+            published = [
+                topic
+                for topic, _ in self.node.get_publisher_names_and_types_by_node(
+                    self.node.get_name(), self.node.get_namespace()
+                )
+            ]
+            if "/emergency_stop" in published or time.monotonic() > deadline:
+                break
+            time.sleep(0.05)
 
         self.assertNotIn("/cmd_vel", published)
         self.assertNotIn("/cmd_vel_requested", published)
