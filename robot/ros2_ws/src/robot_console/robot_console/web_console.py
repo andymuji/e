@@ -38,7 +38,9 @@ import web_ui.app as _console  # noqa: E402 - only importable once path is set
 BadRequest = _console.BadRequest
 GoalStatus = _console.GoalStatus
 RobotWebApp = _console.RobotWebApp
+allowed_hosts_from = _console.allowed_hosts_from
 make_handler = _console.make_handler
+make_resident_handler = _console.make_resident_handler
 
 # The page's static files ship beside the module that serves them, so this
 # follows web_ui wherever it was found rather than guessing a second time.
@@ -49,6 +51,8 @@ __all__ = [
     "BadRequest",
     "GoalStatus",
     "RobotWebApp",
+    "allowed_hosts_from",
     "make_handler",
+    "make_resident_handler",
     "repository_root",
 ]

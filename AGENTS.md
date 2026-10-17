@@ -106,6 +106,19 @@ as the placeholder URDF dimensions and for the same reason. **No robot has yet
 driven to a goal, in simulation or anywhere else.** The stack comes up, the
 graph is correct, and the first goal-reaching run is still bring-up work.
 
+The resident's tablet page is served beside the developer console from the
+same backend: `web_ui/app.py`'s `main()` puts the console on
+`http://127.0.0.1:8080` and the resident page on `http://127.0.0.1:8081`
+(`RESIDENT_HOST=0.0.0.0` to reach it from a tablet on the home Wi-Fi; there is
+no login, so home testing only). Under ROS, `console.launch.py` takes
+`resident_host:=` and `resident_port:=` the same way. Both pages answer only
+to an IP address or `localhost`; a name such as `robot.local` must be listed
+in `ALLOWED_HOSTS` (`allowed_hosts:=` under ROS), which blocks DNS rebinding.
+The page can send the
+robot to a saved room, cancel the trip, and engage the software stop. It
+cannot reset the stop: its server refuses that, and everything else not on its
+allow-list. A stop pressed there is released from the developer console.
+
 Set `ROS_DOMAIN_ID` when more than one person or agent is working: ROS
 defaults to a shared domain, and a stray node from another workspace shows up
 in your topic graph as if it were yours.

@@ -62,6 +62,7 @@ class ConsoleNodeTests(unittest.TestCase):
                 # Port 0 lets the operating system pick a free one, so the
                 # test never fights a console someone left running.
                 Parameter("port", value=0),
+                Parameter("resident_port", value=0),
             ]
         )
         self.listener = rclpy.create_node("console_test_listener")
@@ -87,6 +88,78 @@ class ConsoleNodeTests(unittest.TestCase):
         )
         self.spin(0.2)
         return received
+
+    def resident_call(self, method: str, path: str):
+        import http.client
+
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.node.resident_server.server_address[1], timeout=5
+        )
+        try:
+            connection.request(
+                method, path, body="", headers={"Content-Type": "application/json"}
+            )
+            response = connection.getresponse()
+            return response.status, response.read().decode("utf-8")
+        finally:
+            connection.close()
+
+    def test_the_resident_page_is_served_on_its_own_port(self) -> None:
+        status, body = self.resident_call("GET", "/")
+
+        self.assertEqual(status, 200)
+        self.assertIn("resident.js", body)
+        self.assertNotEqual(
+            self.node.resident_server.server_address[1],
+            self.node.server.server_address[1],
+        )
+
+    def test_the_resident_page_cannot_release_the_stop(self) -> None:
+        resets = self.collect("emergency_stop_reset")
+
+        status, _ = self.resident_call("POST", "/api/emergency_stop/reset")
+        self.spin()
+
+        self.assertEqual(status, 404)
+        self.assertEqual(resets, [])
+
+    def test_the_resident_stop_is_the_consoles_stop(self) -> None:
+        # Same app, same adapter: a stop from the tablet goes out on the
+        # same topic the console's own STOP button uses.
+        stops = self.collect("emergency_stop")
+
+        status, _ = self.resident_call("POST", "/api/emergency_stop")
+        self.spin()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(stops, [True])
+
+    def test_a_resident_port_in_use_releases_the_console_port(self) -> None:
+        # Otherwise the half-built node keeps the console's port bound, and a
+        # restart with a free resident port fails on the console instead.
+        import socket
+
+        taken = socket.socket()
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        self.addCleanup(taken.close)
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        console_port = probe.getsockname()[1]
+        probe.close()
+
+        with self.assertRaises(OSError):
+            ConsoleNode(
+                parameter_overrides=[
+                    Parameter("locations_file", value=self.node.get_parameter("locations_file").value),
+                    Parameter("port", value=console_port),
+                    Parameter("resident_port", value=taken.getsockname()[1]),
+                ]
+            )
+
+        again = socket.socket()
+        self.addCleanup(again.close)
+        again.bind(("127.0.0.1", console_port))
 
     def test_requires_the_approved_destination_store(self) -> None:
         with self.assertRaises(ValueError):

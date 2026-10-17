@@ -1,7 +1,9 @@
 """Serve the operator console against a running robot.
 
 AUTHORITY: this console may ask for a trip and it may engage or release the
-software emergency stop. That is the whole of it.
+software emergency stop. That is the whole of it. The resident's page, served
+on its own port from the same app, may ask for a trip, cancel it and engage
+the stop; it cannot release the stop, which its server refuses.
 
 It never publishes a velocity and never touches /cmd_vel. A destination it
 accepts becomes a Nav2 NavigateToPose goal, and every Nav2 node that can emit
@@ -52,7 +54,13 @@ from robot_console.safety_adapter import (
     RosSafetyAdapter,
     parse_state,
 )
-from robot_console.web_console import WEB_ROOT, RobotWebApp, make_handler
+from robot_console.web_console import (
+    WEB_ROOT,
+    RobotWebApp,
+    allowed_hosts_from,
+    make_handler,
+    make_resident_handler,
+)
 
 # Matches robot_safety.safety_node.STATE_QOS. Imported rather than restated
 # would couple this package's import to rclpy being present in the gate's
@@ -86,6 +94,13 @@ class ConsoleNode(Node):
         self.declare_parameter("locations_file", "")
         self.declare_parameter("host", "127.0.0.1")
         self.declare_parameter("port", 8080)
+        # The resident's tablet page. Local by default, like the console.
+        self.declare_parameter("resident_host", "127.0.0.1")
+        self.declare_parameter("resident_port", 8081)
+        # Host names, beyond IP addresses and localhost, that either page
+        # answers to (comma-separated, e.g. "robot.local"). Any other name is
+        # refused, which is what stops DNS rebinding.
+        self.declare_parameter("allowed_hosts", "")
         self.declare_parameter("goal_frame_id", "map")
         self.declare_parameter("map_frame", "map")
         self.declare_parameter("base_frame", "base_link")
@@ -112,6 +127,9 @@ class ConsoleNode(Node):
         safety_timeout = float(self.get_parameter("safety_timeout").value)
         host = str(self.get_parameter("host").value)
         port = int(self.get_parameter("port").value)
+        resident_host = str(self.get_parameter("resident_host").value)
+        resident_port = int(self.get_parameter("resident_port").value)
+        allowed_hosts = allowed_hosts_from(str(self.get_parameter("allowed_hosts").value))
 
         store = LocationStore(locations_file)
         if not store.path.exists():
@@ -172,14 +190,33 @@ class ConsoleNode(Node):
             map_provider=self.map_provider,
         )
         self.server = ThreadingHTTPServer(
-            (host, port), make_handler(self.app, WEB_ROOT)
+            (host, port), make_handler(self.app, WEB_ROOT, allowed_hosts=allowed_hosts)
         )
-        self._server_thread = Thread(
-            target=self.server.serve_forever, name="operator-console", daemon=True
-        )
-        self._server_thread.start()
+        # Same app, so one latch: a stop from the tablet is the console's stop.
+        try:
+            self.resident_server = ThreadingHTTPServer(
+                (resident_host, resident_port),
+                make_resident_handler(self.app, WEB_ROOT, allowed_hosts),
+            )
+        except OSError:
+            # Not left holding the console's port for a node that never ran.
+            self.server.server_close()
+            raise
+        self._server_threads = [
+            Thread(target=server.serve_forever, name=name, daemon=True)
+            for server, name in (
+                (self.server, "operator-console"),
+                (self.resident_server, "resident-page"),
+            )
+        ]
+        for thread in self._server_threads:
+            thread.start()
         self.get_logger().info(
             f"operator console on http://{host}:{self.server.server_address[1]}"
+        )
+        self.get_logger().info(
+            f"resident page on http://{resident_host}:"
+            f"{self.resident_server.server_address[1]}"
         )
 
     def _on_safety_state(self, message: String) -> None:
@@ -245,9 +282,11 @@ class ConsoleNode(Node):
         return stamped
 
     def destroy_node(self) -> bool:
-        self.server.shutdown()
-        self.server.server_close()
-        self._server_thread.join(timeout=5.0)
+        for server in (self.server, self.resident_server):
+            server.shutdown()
+            server.server_close()
+        for thread in self._server_threads:
+            thread.join(timeout=5.0)
         return super().destroy_node()
 
 
