@@ -1,5 +1,11 @@
+from pathlib import Path
 import time
 import unittest
+
+BASE_DYNAMICS = (
+    Path(__file__).resolve().parents[2]
+    / "robot_bringup" / "config" / "base_dynamics.yaml"
+)
 
 try:
     from geometry_msgs.msg import (
@@ -142,6 +148,169 @@ class SafetyNodeTests(unittest.TestCase):
             listener.destroy_node()
 
         self.assertEqual(heard, [self.node._last_status])
+
+
+def scan(*ranges: float) -> "LaserScan":
+    message = LaserScan()
+    message.range_min = 0.08  # The simulated lidar's, robot.gazebo.xacro.
+    message.range_max = 10.0
+    message.ranges = list(ranges)
+    return message
+
+
+def velocities(message: "Twist") -> list[float]:
+    return [
+        message.linear.x, message.linear.y, message.linear.z,
+        message.angular.x, message.angular.y, message.angular.z,
+    ]
+
+
+@unittest.skipUnless(ROS_AVAILABLE, "ROS 2 Python dependencies are unavailable")
+class SafetyNodeAdversarialTests(unittest.TestCase):
+    """Inputs chosen to find a way past the gate, not to show it working."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        rclpy.init()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        rclpy.shutdown()
+
+    def setUp(self) -> None:
+        self.node = SafetyNode()
+        self.published = PublishedMessages()
+        self.node._velocity_publisher = self.published
+
+        requested = Twist()
+        requested.linear.x = 1.0
+        self.node._on_velocity(requested)
+
+    def tearDown(self) -> None:
+        self.node.destroy_node()
+
+    def last(self) -> float:
+        self.node._publish_safe_velocity()
+        return self.published.messages[-1].linear.x
+
+    def test_a_stop_zeroes_every_axis_not_just_forward(self) -> None:
+        # Turning on the spot next to a person is still motion.
+        requested = Twist()
+        requested.linear.x = requested.linear.y = requested.linear.z = 1.0
+        requested.angular.x = requested.angular.y = requested.angular.z = 1.0
+        self.node._on_velocity(requested)
+        self.node._on_scan(scan(2.0))
+        self.node._on_emergency_stop(Bool(data=True))
+        self.node._publish_safe_velocity()
+
+        self.assertEqual(velocities(self.published.messages[-1]), [0.0] * 6)
+
+    def test_an_empty_scan_stops_the_robot(self) -> None:
+        self.node._on_scan(scan())
+
+        self.assertEqual(self.last(), 0.0)
+
+    def test_an_unusable_scan_replaces_the_last_good_one(self) -> None:
+        # The old clear reading must not survive a scan that says nothing.
+        self.node._on_scan(scan(2.0))
+        self.assertAlmostEqual(self.last(), 1.0)
+
+        self.node._on_scan(scan(float("nan"), float("inf"), 20.0))
+
+        self.assertEqual(self.last(), 0.0)
+
+    def test_a_false_reset_does_not_release_the_latch(self) -> None:
+        self.node._on_scan(scan(2.0))
+        self.node._on_emergency_stop(Bool(data=True))
+        self.node._on_emergency_stop_reset(Bool(data=False))
+
+        self.assertEqual(self.last(), 0.0)
+        self.assertTrue(self.node._controller.emergency_stop_engaged)
+
+    def test_a_reset_does_not_override_a_close_obstacle(self) -> None:
+        self.node._on_scan(scan(0.2))
+        self.node._on_emergency_stop(Bool(data=True))
+        self.node._on_emergency_stop_reset(Bool(data=True))
+
+        self.assertEqual(self.last(), 0.0)
+
+    def test_a_reset_does_not_override_a_stale_scan(self) -> None:
+        self.node._on_scan(scan(2.0))
+        self.node._on_emergency_stop(Bool(data=True))
+        self.node._last_scan_time = self.node._now() - 5.0
+        self.node._on_emergency_stop_reset(Bool(data=True))
+
+        self.assertEqual(self.last(), 0.0)
+
+    def test_a_stale_scan_stays_stopped_until_a_fresh_one_arrives(self) -> None:
+        self.node._on_scan(scan(2.0))
+        self.node._last_scan_time = self.node._now() - 5.0
+        self.assertEqual(self.last(), 0.0)
+        self.assertEqual(self.last(), 0.0)
+
+        self.node._on_scan(scan(2.0))
+
+        self.assertAlmostEqual(self.last(), 1.0)
+
+    def test_a_clock_that_jumps_backwards_stops_until_fresh_data(self) -> None:
+        # A simulator reset rewinds sim time, leaving every timestamp in the
+        # future. That is not "fresh"; it is unknown.
+        self.node._on_scan(scan(2.0))
+        self.node._last_scan_time = self.node._now() + 5.0
+        self.node._last_command_time = self.node._now() + 5.0
+        self.assertEqual(self.last(), 0.0)
+
+        requested = Twist()
+        requested.linear.x = 1.0
+        self.node._on_velocity(requested)
+        self.node._on_scan(scan(2.0))
+
+        self.assertAlmostEqual(self.last(), 1.0)
+
+    # DEFECT: a stop multiplies the request by 0.0, and NaN * 0.0 and
+    # inf * 0.0 are NaN. A commander that emits a non-finite velocity puts NaN
+    # on /cmd_vel while the gate reports "stop", including under the e-stop.
+    @unittest.expectedFailure
+    def test_a_non_finite_request_is_still_zero_in_a_stop(self) -> None:
+        requested = Twist()
+        requested.linear.x = float("nan")
+        requested.angular.z = float("inf")
+        self.node._on_velocity(requested)
+        self.node._on_scan(scan(2.0))
+        self.node._on_emergency_stop(Bool(data=True))
+        self.node._publish_safe_velocity()
+
+        self.assertEqual(velocities(self.published.messages[-1]), [0.0] * 6)
+
+    # DEFECT: _on_scan discards -inf and anything below range_min. REP 117
+    # defines -inf as "too close to the sensor to measure", so an obstacle
+    # pressed against the nose (0.05 m ahead of the lidar, inside its 0.08 m
+    # range_min) vanishes, and the far wall makes the path read as clear.
+    @unittest.expectedFailure
+    def test_an_obstacle_too_close_to_measure_stops_the_robot(self) -> None:
+        commanded = []
+        for too_close in (float("-inf"), 0.05):
+            self.node._on_scan(scan(too_close, 2.0))
+            commanded.append(self.last())
+
+        self.assertEqual(commanded, [0.0, 0.0])
+
+    # DEFECT: the gate passes any requested speed through unbounded. The
+    # stop and caution distances were derived for base_dynamics.yaml's
+    # max_speed, and the only thing enforcing it is the Gazebo DiffDrive cap,
+    # which does not exist on hardware. teleop_twist_keyboard can be keyed up
+    # past it.
+    @unittest.expectedFailure
+    def test_the_gate_never_exceeds_the_speed_its_distances_assume(self) -> None:
+        import yaml
+
+        max_speed = yaml.safe_load(BASE_DYNAMICS.read_text())["max_speed"]
+        requested = Twist()
+        requested.linear.x = 5.0
+        self.node._on_velocity(requested)
+        self.node._on_scan(scan(2.0))
+
+        self.assertLessEqual(abs(self.last()), max_speed)
 
 
 @unittest.skipUnless(ROS_AVAILABLE, "ROS 2 Python dependencies are unavailable")

@@ -1,9 +1,10 @@
 :root {
   --ink: #1e2930;
-  --muted: #647277;
+  --muted: #5f6d72;
   --paper: #f8f6f0;
   --panel: #ffffff;
   --line: #dce2df;
+  --field: #84918d;
   --teal: #176b68;
   --teal-dark: #104b4b;
   --teal-soft: #e4f2ef;
@@ -82,8 +83,8 @@ body.stopped .status-panel { border-left-color: var(--red); }
 .form-note { margin: 6px 0 16px; color: var(--muted); line-height: 1.45; }
 .form-row { margin-bottom: 12px; }
 .form-row label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; }
-.form-row input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); background: white; color: var(--ink); font: inherit; }
-.form-row input:focus-visible { border-color: var(--teal); outline: none; }
+.form-row input { width: 100%; padding: 12px 14px; border: 1px solid var(--field); background: white; color: var(--ink); font: inherit; }
+.form-row input:focus-visible { border-color: var(--teal); }
 .form-row-numbers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .location-form button { padding: 13px 26px; border: 2px solid var(--teal); background: var(--teal); color: white; font: inherit; font-weight: 800; cursor: pointer; }
 .location-form button:hover, .location-form button:focus-visible { background: var(--teal-dark); border-color: var(--teal-dark); }
@@ -92,8 +93,8 @@ body.stopped .status-panel { border-left-color: var(--red); }
 .loading { color: var(--muted); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .voice-form { display: flex; gap: 12px; }
-.voice-form input { flex: 1; min-width: 0; padding: 15px 17px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; }
-.voice-form input:focus-visible { border-color: var(--teal); outline: none; box-shadow: 0 8px 18px #176b6814; }
+.voice-form input { flex: 1; min-width: 0; padding: 15px 17px; border: 1px solid var(--field); background: var(--panel); color: var(--ink); font: inherit; }
+.voice-form input:focus-visible { border-color: var(--teal); box-shadow: 0 8px 18px #176b6814; }
 .voice-form button { padding: 15px 28px; border: 2px solid var(--teal); background: var(--teal); color: white; font: inherit; font-weight: 800; cursor: pointer; }
 .voice-form button:hover, .voice-form button:focus-visible { background: var(--teal-dark); border-color: var(--teal-dark); }
 .voice-form button:disabled { cursor: wait; opacity: 0.6; }
@@ -119,11 +120,14 @@ body.stopped .status-panel { border-left-color: var(--red); }
 .map-location circle { fill: var(--teal); stroke: white; stroke-width: 4; }
 .map-location text { fill: var(--ink); font: 700 19px "Trebuchet MS", sans-serif; paint-order: stroke; stroke: #fafaf4; stroke-width: 6px; stroke-linejoin: round; }
 .map-location:focus circle, .map-location:hover circle { fill: var(--teal-dark); r: 15; }
+/* The fill change alone is 1.6:1 against the unfocused dot: too faint to
+   find the keyboard focus by, so it gets a dark ring as well. */
+.map-location:focus-visible circle { stroke: var(--ink); stroke-width: 6; }
 .map-location.is-busy { pointer-events: none; opacity: .55; }
 .label-form { display: grid; gap: 8px; padding: 18px; border-top: 1px solid var(--line); background: #f7fbf8; }
 .label-form p, .label-form label { margin: 0; color: var(--muted); font-size: .9rem; font-weight: 700; }
 .label-actions { display: flex; gap: 10px; }
-.label-actions input { min-width: 0; flex: 1; min-height: 48px; padding: 0 12px; border: 1px solid #aab7b2; border-radius: 0; font: inherit; font-size: 1rem; }
+.label-actions input { min-width: 0; flex: 1; min-height: 48px; padding: 0 12px; border: 1px solid var(--field); border-radius: 0; font: inherit; font-size: 1rem; }
 .label-actions button[type=submit] { padding: 0 16px; background: var(--teal); color: white; }
 .label-actions .secondary-button { padding: 0 14px; border-color: #aab7b2; color: var(--muted); }
 .footer-note { max-width: 680px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); line-height: 1.5; }

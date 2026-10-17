@@ -6,7 +6,7 @@
 # robot that has lost it will drive confidently into the wrong room.
 #
 # The distances below are DERIVED from base_dynamics.yaml. Do not edit them
-# here: BringupSafetyDistanceTests checks both files against the derivation.
+# here: SafetyDistanceDerivationTests checks both files against the derivation.
 safety_controller:
   ros__parameters:
     use_sim_time: true

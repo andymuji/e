@@ -6,8 +6,9 @@ import tempfile
 import unittest
 
 try:
-    from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
+    from geometry_msgs.msg import PoseStamped, TransformStamped, Twist
     import rclpy
+    from rclpy.duration import Duration
     from robot_locations.location_node import LocationNode
     from std_msgs.msg import String
     from std_srvs.srv import Trigger
@@ -60,15 +61,24 @@ class LocationNodeFixture(unittest.TestCase):
         self.statuses = PublishedMessages()
         node._goal_publisher = self.goals
         node._status_publisher = self.statuses
+        self.now = node.get_clock().now()
         return node
 
-    def at_pose(self, x: float, y: float) -> None:
-        """Tell the node where the robot is, as AMCL would."""
-        message = PoseWithCovarianceStamped()
-        message.pose.pose.position.x = x
-        message.pose.pose.position.y = y
-        message.pose.pose.orientation.w = 1.0
-        self.node._on_pose(message)
+    def at_pose(
+        self, x: float, y: float, parent: str = "map", child: str = "base_footprint",
+        age: float = 0.0,
+    ) -> None:
+        """Tell the node where the robot is, as AMCL and odometry would via tf."""
+        message = TransformStamped()
+        message.header.frame_id = parent
+        # One instant per node, so transforms set together share a stamp and
+        # chain as they would out of a buffer holding many of each.
+        message.header.stamp = (self.now - Duration(seconds=age)).to_msg()
+        message.child_frame_id = child
+        message.transform.translation.x = x
+        message.transform.translation.y = y
+        message.transform.rotation.w = 1.0
+        self.node._tf_buffer.set_transform(message, "test")
 
     def save(self, name: str) -> None:
         self.node._on_save(String(data=name))
@@ -115,7 +125,7 @@ class LocationNodeTests(LocationNodeFixture):
         self.assertIn("refused to save", self.last_status())
 
     def test_saving_without_a_known_pose_is_refused(self) -> None:
-        # No AMCL pose has arrived, so the robot does not know where it is
+        # Nothing places the robot in the map, so it does not know where it is
         # and must not record a guess under the operator's chosen name.
         self.save("kitchen")
 
@@ -123,12 +133,35 @@ class LocationNodeTests(LocationNodeFixture):
         self.assertIn("does not have a current pose", self.last_status())
 
     def test_a_stale_pose_is_not_saved(self) -> None:
-        self.at_pose(4.0, 4.0)
-        self.node._last_pose_time = self.node._now() - 30.0
+        self.at_pose(4.0, 4.0, age=30.0)
         self.save("kitchen")
 
         self.assertEqual(self.node._store.names(), ())
         self.assertIn("does not have a current pose", self.last_status())
+
+    def test_a_pose_from_before_a_clock_reset_is_not_saved(self) -> None:
+        # A simulator reset restarts the clock, leaving tf stamped far in the
+        # future. A stamp just ahead of the clock is ordinary jitter.
+        self.at_pose(4.0, 4.0, age=-0.1)
+        self.save("kitchen")
+        self.assertEqual(self.node._store.names(), ("kitchen",))
+
+        self.at_pose(1.0, 1.0, age=-30.0)
+        self.save("bedroom")
+        self.assertEqual(self.node._store.names(), ("kitchen",))
+
+    def test_a_standing_robot_is_saved_where_odometry_puts_it(self) -> None:
+        # A standing robot gets no amcl_pose at all, but AMCL keeps
+        # broadcasting map -> odom and odometry keeps odom -> base_footprint
+        # fresh. The save must succeed from that chain alone.
+        self.at_pose(1.0, 2.0, "map", "odom")
+        self.at_pose(0.5, 0.0, "odom", "base_footprint")
+        self.save("kitchen")
+
+        self.assertIn("saved kitchen", self.last_status())
+        pose = self.node._store.get_goal("kitchen").pose
+        self.assertAlmostEqual(pose.x, 1.5)
+        self.assertAlmostEqual(pose.y, 2.0)
 
     def test_saved_places_are_listed_by_the_service(self) -> None:
         self.at_pose(4.0, 4.0)

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot helper</title>
+  <link rel="stylesheet" href="/resident.css">
+</head>
+<body>
+  <!-- The resident's page. It can send the robot to a saved room, cancel the
+       trip, and stop the robot. It cannot undo a stop: the server refuses
+       that from here; only the developer console can release it. -->
+  <main class="layout">
+    <section class="messages" aria-label="What the robot is doing">
+      <!-- Neutral until a status read arrives: the page has not heard from
+           the robot yet, so it must not say the robot is ready. Routine news
+           goes in the status; anything the resident must act on goes in an
+           alert, which a screen reader reads out straight away. -->
+      <p class="status" id="status" role="status" aria-live="polite">Checking the robot…</p>
+      <p class="alert" id="alert" role="alert"></p>
+      <p class="alert stop-alert" id="stop-alert" role="alert"></p>
+      <button class="cancel-button" id="cancel-button" type="button" hidden>Cancel trip</button>
+    </section>
+
+    <!-- Early in the page so it is reached first by keyboard and screen
+         reader; the layout puts it at the bottom or the side. -->
+    <section class="stop-panel" aria-label="Stop the robot">
+      <button class="stop-button" id="stop-button" type="button" aria-describedby="stop-note">STOP</button>
+      <p class="stop-note" id="stop-note">Stops the robot straight away.</p>
+    </section>
+
+    <section class="trip" aria-label="Choose a room">
+      <div id="choose">
+        <h1 id="question" tabindex="-1">Where should the robot go?</h1>
+        <p class="note" id="rooms-note" role="status">Loading the rooms…</p>
+        <div class="rooms" id="rooms"></div>
+      </div>
+
+      <div class="confirm" id="confirm" role="group" aria-labelledby="confirm-question" hidden>
+        <h1 id="confirm-question" tabindex="-1"></h1>
+        <div class="confirm-actions">
+          <button class="yes-button" id="yes-button" type="button">Yes</button>
+          <button class="no-button" id="no-button" type="button">No</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="/resident.js"></script>
+</body>
+</html>

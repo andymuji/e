@@ -27,6 +27,7 @@ from robot_telemetry.records import (
     SAFETY_STATE,
     SCAN,
     Flag,
+    Opaque,
     Record,
     SafetyStatus,
     Scan,
@@ -150,6 +151,23 @@ class MotionWhileStoppedTests(unittest.TestCase):
         )
         self.assertIs(
             check_motion_only_when_permitted(records).outcome, Outcome.FAILED
+        )
+
+    def test_a_velocity_it_cannot_read_is_not_counted_as_zero(self):
+        """A /cmd_vel of another type (a TwistStamped, say) is not a zero.
+
+        It used to be counted as a stopped moment, so a stream the analyser
+        could not read at all was reported as "every one of them was zero",
+        and passed.
+        """
+        records = run(
+            (0.0, SAFETY_STATE, state("stop: emergency stop active")),
+            (0.5, CMD_VEL, Opaque("TwistStamped")),
+            (0.6, CMD_VEL, Opaque("TwistStamped")),
+        )
+        self.assertIs(
+            check_motion_only_when_permitted(records).outcome,
+            Outcome.NOT_EXERCISED,
         )
 
 

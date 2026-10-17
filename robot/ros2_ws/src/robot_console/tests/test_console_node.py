@@ -8,6 +8,7 @@ subscription's QoS matches a latched map.
 
 from pathlib import Path
 import tempfile
+import time
 import unittest
 
 try:
@@ -20,7 +21,7 @@ try:
         pose_from_transform,
         snapshot_from_message,
     )
-    from robot_core import Pose2D
+    from robot_core import NavigationGoal, Pose2D
     from robot_locations import LocationStore
     from std_msgs.msg import Bool, String
 
@@ -61,6 +62,7 @@ class ConsoleNodeTests(unittest.TestCase):
                 # Port 0 lets the operating system pick a free one, so the
                 # test never fights a console someone left running.
                 Parameter("port", value=0),
+                Parameter("resident_port", value=0),
             ]
         )
         self.listener = rclpy.create_node("console_test_listener")
@@ -86,6 +88,78 @@ class ConsoleNodeTests(unittest.TestCase):
         )
         self.spin(0.2)
         return received
+
+    def resident_call(self, method: str, path: str):
+        import http.client
+
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.node.resident_server.server_address[1], timeout=5
+        )
+        try:
+            connection.request(
+                method, path, body="", headers={"Content-Type": "application/json"}
+            )
+            response = connection.getresponse()
+            return response.status, response.read().decode("utf-8")
+        finally:
+            connection.close()
+
+    def test_the_resident_page_is_served_on_its_own_port(self) -> None:
+        status, body = self.resident_call("GET", "/")
+
+        self.assertEqual(status, 200)
+        self.assertIn("resident.js", body)
+        self.assertNotEqual(
+            self.node.resident_server.server_address[1],
+            self.node.server.server_address[1],
+        )
+
+    def test_the_resident_page_cannot_release_the_stop(self) -> None:
+        resets = self.collect("emergency_stop_reset")
+
+        status, _ = self.resident_call("POST", "/api/emergency_stop/reset")
+        self.spin()
+
+        self.assertEqual(status, 404)
+        self.assertEqual(resets, [])
+
+    def test_the_resident_stop_is_the_consoles_stop(self) -> None:
+        # Same app, same adapter: a stop from the tablet goes out on the
+        # same topic the console's own STOP button uses.
+        stops = self.collect("emergency_stop")
+
+        status, _ = self.resident_call("POST", "/api/emergency_stop")
+        self.spin()
+
+        self.assertEqual(status, 200)
+        self.assertEqual(stops, [True])
+
+    def test_a_resident_port_in_use_releases_the_console_port(self) -> None:
+        # Otherwise the half-built node keeps the console's port bound, and a
+        # restart with a free resident port fails on the console instead.
+        import socket
+
+        taken = socket.socket()
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        self.addCleanup(taken.close)
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        console_port = probe.getsockname()[1]
+        probe.close()
+
+        with self.assertRaises(OSError):
+            ConsoleNode(
+                parameter_overrides=[
+                    Parameter("locations_file", value=self.node.get_parameter("locations_file").value),
+                    Parameter("port", value=console_port),
+                    Parameter("resident_port", value=taken.getsockname()[1]),
+                ]
+            )
+
+        again = socket.socket()
+        self.addCleanup(again.close)
+        again.bind(("127.0.0.1", console_port))
 
     def test_requires_the_approved_destination_store(self) -> None:
         with self.assertRaises(ValueError):
@@ -116,12 +190,20 @@ class ConsoleNodeTests(unittest.TestCase):
     def test_the_console_publishes_no_velocity(self) -> None:
         # The safety rule this node lives under: only robot_safety publishes
         # /cmd_vel, and the console is a motion source, never an authority.
-        published = [
-            topic
-            for topic, _ in self.node.get_publisher_names_and_types_by_node(
-                self.node.get_name(), self.node.get_namespace()
-            )
-        ]
+        # Graph discovery is asynchronous: on a slow CI runner the list is
+        # still empty at first, and an empty list would pass the NotIn checks
+        # vacuously. Wait for it to fill.
+        deadline = time.monotonic() + 5.0
+        while True:
+            published = [
+                topic
+                for topic, _ in self.node.get_publisher_names_and_types_by_node(
+                    self.node.get_name(), self.node.get_namespace()
+                )
+            ]
+            if "/emergency_stop" in published or time.monotonic() > deadline:
+                break
+            time.sleep(0.05)
 
         self.assertNotIn("/cmd_vel", published)
         self.assertNotIn("/cmd_vel_requested", published)
@@ -140,6 +222,25 @@ class ConsoleNodeTests(unittest.TestCase):
         status = self.node.app.status()
         self.assertEqual(status["safety_state"], "caution")
         self.assertEqual(status["safety_message"], "obstacle inside caution distance")
+
+    def test_a_latch_engaged_elsewhere_ends_the_consoles_trip(self) -> None:
+        # A spoken stop latches the gate without going through this console.
+        # Its trip must end too, or it resumes the moment the stop is reset.
+        # An obstacle stop is momentary and leaves the trip alone.
+        from web_ui.app import DemoGoalDispatcher
+
+        dispatcher = DemoGoalDispatcher()
+        self.node.app.dispatcher = dispatcher
+        dispatcher.send_goal(NavigationGoal("kitchen", Pose2D(1.0, 2.0)))
+        state = self.listener.create_publisher(String, "safety_state", STATE_QOS)
+
+        state.publish(String(data="stop: obstacle inside stop distance"))
+        self.spin()
+        self.assertEqual(dispatcher.status().state, "navigating")
+
+        state.publish(String(data="stop: emergency stop active"))
+        self.spin()
+        self.assertEqual(dispatcher.status().state, "cancelled")
 
     def test_a_goal_with_no_navigation_running_is_refused(self) -> None:
         # Nav2 is not running in this test, which is the point: the console

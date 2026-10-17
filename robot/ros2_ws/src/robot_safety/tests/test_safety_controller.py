@@ -116,6 +116,40 @@ class SafetyControllerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     SafetyController(command_timeout=command_timeout)
 
+    def test_the_boundaries_belong_to_the_stricter_zone(self) -> None:
+        # An obstacle exactly at a threshold is inside it, not outside.
+        self.assertIs(self.controller.evaluate(0.35).state, SafetyState.STOP)
+        self.assertIs(self.controller.evaluate(0.8).state, SafetyState.CAUTION)
+
+    def test_a_negative_distance_stops_the_robot(self) -> None:
+        # A driver bug, not open space.
+        self.assertIs(self.controller.evaluate(-0.1).state, SafetyState.STOP)
+
+    def test_repeated_evaluation_never_wears_the_latch_off(self) -> None:
+        self.controller.engage_emergency_stop()
+
+        for _ in range(100):
+            self.controller.evaluate(10.0)
+
+        self.assertTrue(self.controller.emergency_stop_engaged)
+        self.assertIs(self.controller.evaluate(10.0).state, SafetyState.STOP)
+
+    def test_a_reset_does_not_bypass_the_other_stop_conditions(self) -> None:
+        self.controller.engage_emergency_stop()
+        self.controller.clear_emergency_stop()
+
+        cases = (
+            ((0.2,), {}, "obstacle inside stop distance"),
+            ((10.0,), {"reading_age": 5.0}, "obstacle sensor timed out"),
+            ((10.0,), {"command_age": 5.0}, "motion command timed out"),
+            ((None,), {}, "invalid obstacle sensor reading"),
+        )
+        for args, kwargs, reason in cases:
+            with self.subTest(reason=reason):
+                decision = self.controller.evaluate(*args, **kwargs)
+                self.assertIs(decision.state, SafetyState.STOP)
+                self.assertEqual(decision.reason, reason)
+
 
 if __name__ == "__main__":
     unittest.main()

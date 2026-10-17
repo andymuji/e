@@ -1,0 +1,64 @@
+==============================================================================
+SAFETY REPORT FOR ONE RECORDED RUN
+==============================================================================
+Recording: /root/robot_runs/idle-gate-check-20260921-164231
+Contents:  5684 messages over 75.9 seconds
+Judged against a stop distance of 0.45 m
+
+VERDICT: PASS  -  this recording broke none of the safety rules checked below
+
+This report is about this one recording. It is not a substitute for
+the physical emergency-stop test in docs/safety-test-procedure.md.
+
+------------------------------------------------------------------------------
+WHAT WAS CHECKED
+------------------------------------------------------------------------------
+
+[PASSED] The recording contains something to judge
+  What happened: 5684 messages over 75.9 s, including 1416 velocity commands
+                 and 1 safety states.
+  What it means: There is a run here to inspect.
+
+[PASSED] Only /safety_controller published /cmd_vel
+  What happened: /cmd_vel was published by /safety_controller and by nothing
+                 else.
+  What it means: Every command that reached the wheels in this run had to pass
+                 through the safety gate first.
+
+[PASSED] Nothing moved while the safety gate said stop
+  What happened: 1416 velocity commands were recorded while the gate was
+                 stopped, and every one of them was zero.
+  What it means: Whenever the gate said stop in this run, the wheels were told
+                 zero.
+
+[NOT EXERCISED] The emergency stop stayed latched until an operator reset it
+  What happened: The emergency stop was never engaged during this recording.
+  What it means: Nobody pressed stop in this run, so this recording says
+                 nothing about the latch.
+
+------------------------------------------------------------------------------
+HOW LONG THE ROBOT TOOK TO STOP
+------------------------------------------------------------------------------
+
+  Nothing in this run asked a moving robot to stop, so there is no stopping
+  time to report. An obstacle inside the stop distance while the robot was
+  standing still does not count.
+
+------------------------------------------------------------------------------
+WHAT THE SAFETY GATE DID, IN ORDER
+------------------------------------------------------------------------------
+
+     0.000 s  stop     no motion command received
+
+------------------------------------------------------------------------------
+WORTH KNOWING
+------------------------------------------------------------------------------
+
+  - The recording ends while the gate was holding the robot stopped ("stop: no
+    motion command received"). Nothing in this file shows that stop being
+    released, so the recording cannot vouch for what happened next.
+
+  - One or more checks were not exercised by this run. A check that was never
+    put to the test is not a check that passed.
+
+==============================================================================

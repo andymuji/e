@@ -1,0 +1,152 @@
+:root {
+  --ink: #111111;
+  --paper: #ffffff;
+  --line: #111111;
+  --action: #0b3d91;
+  --on-action: #ffffff;
+  --stop: #a50000;
+  --on-stop: #ffffff;
+  --focus: #ffbf00;
+  --focus-dark: #111111;
+  --wait: #f2f2f2;
+  --alert-bg: #ffe1e1;
+  font-family: Verdana, "Segoe UI", Arial, sans-serif;
+  /* 150% of the browser's own setting, so a larger system text size makes
+     everything here larger too. 1rem is 24px at the default. */
+  font-size: 150%;
+  line-height: 1.35;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: var(--paper); }
+
+/* DOM order is messages, STOP, rooms, so STOP is reached early; the grid
+   puts it last on screen. */
+.layout {
+  display: grid;
+  grid-template-areas: "messages" "trip" "stop";
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.messages { grid-area: messages; padding: 1rem 1rem 0; }
+.trip { grid-area: trip; padding: 0 1rem 1.25rem; }
+.stop-panel { grid-area: stop; }
+
+h1 { margin: 1rem 0 0.8rem; font-size: 1.6rem; font-weight: 700; }
+h1:focus { outline: none; }
+
+.status, .alert {
+  margin: 0 0 0.6rem;
+  padding: 0.8rem 1rem;
+  border: 4px solid var(--line);
+  border-radius: 12px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: var(--wait);
+}
+.status:empty, .alert:empty { display: none; }
+.alert { background: var(--alert-bg); border-color: var(--stop); }
+.status.is-moving { background: #dbe8ff; }
+
+.rooms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.8rem;
+}
+.note { margin: 0 0 0.8rem; font-size: 1.2rem; }
+.note:empty { display: none; }
+
+button {
+  min-height: 3.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 1.4rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+/* Two-tone: the dark ring shows on light backgrounds, the amber halo
+   outside it on dark ones. */
+button:focus-visible {
+  outline: 4px solid var(--focus-dark);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 10px var(--focus);
+}
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.room-button, .yes-button {
+  border: 3px solid var(--action);
+  background: var(--action);
+  color: var(--on-action);
+}
+.room-button { width: 100%; text-transform: capitalize; }
+.no-button, .cancel-button {
+  border: 4px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+}
+.cancel-button { width: 100%; margin-bottom: 0.6rem; }
+
+.confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+.confirm-actions button { min-height: 5rem; font-size: 1.8rem; }
+
+.stop-panel {
+  position: sticky;
+  bottom: 0;
+  padding: 0.7rem 1rem 0.8rem;
+  border-top: 4px solid var(--line);
+  background: var(--paper);
+  text-align: center;
+}
+.stop-button {
+  width: 100%;
+  min-height: 5rem;
+  border: 4px solid var(--ink);
+  background: var(--stop);
+  color: var(--on-stop);
+  font-size: 2.6rem;
+  letter-spacing: 0.08em;
+}
+.stop-note { margin: 0.4rem 0 0; font-size: 1rem; }
+
+/* A tablet on its side: STOP gets its own full-height column. */
+@media (orientation: landscape) and (min-width: 800px) {
+  .layout {
+    grid-template-areas: "messages stop" "trip stop";
+    grid-template-columns: 1fr 13rem;
+  }
+  .stop-panel {
+    top: 0;
+    height: 100vh;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-top: none;
+    border-left: 4px solid var(--line);
+  }
+  .stop-button { min-height: 10rem; }
+}
+
+/* A short screen (a phone on its side): a smaller STOP bar that still
+   leaves room for the rooms. The note stays for screen readers. */
+@media (max-height: 520px) {
+  .stop-panel { padding: 0.3rem 0.6rem; }
+  .stop-button { min-height: 3rem; font-size: 1.8rem; }
+  .stop-note {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .confirm-actions button { min-height: 3.5rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}

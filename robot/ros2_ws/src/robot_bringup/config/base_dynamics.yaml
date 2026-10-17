@@ -7,7 +7,7 @@
 #
 # measured: false means every value below is a plausible assumption matched to
 # the placeholder URDF, not a measurement. Before any hardware test, measure
-# the real base, set measured: true, and re-run docs/safety-test-procedure.md.
+# the real base, set measured: true, and re-run docs/safety/safety-test-procedure.md.
 measured: false
 
 # Speed cap in robot.gazebo.xacro (max_linear_velocity), m/s.

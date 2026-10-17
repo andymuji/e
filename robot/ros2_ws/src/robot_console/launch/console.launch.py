@@ -17,7 +17,8 @@ reports that the safety gate is not running, refuses to send goals, and shows
 the stop latch as unknown rather than as released.
 
 The console's STOP button publishes `true` on `emergency_stop` and its reset
-publishes `true` on `emergency_stop_reset`. The physical emergency stop is
+publishes `true` on `emergency_stop_reset`. The resident's page (resident_port)
+has the STOP and no reset: its server refuses one. The physical emergency stop is
 wired independently of all of this.
 """
 
@@ -52,6 +53,28 @@ def generate_launch_description() -> LaunchDescription:
             default_value="8080",
             description="Port the console listens on.",
         ),
+        DeclareLaunchArgument(
+            "resident_host",
+            default_value="127.0.0.1",
+            description=(
+                "Address the resident's page listens on. It can send the "
+                "robot to a saved room and engage the stop, never release it; "
+                "0.0.0.0 lets a tablet on the home network reach it."
+            ),
+        ),
+        DeclareLaunchArgument(
+            "resident_port",
+            default_value="8081",
+            description="Port the resident's page listens on.",
+        ),
+        DeclareLaunchArgument(
+            "allowed_hosts",
+            default_value="",
+            description=(
+                "Comma-separated host names both pages answer to besides IP "
+                "addresses and localhost, e.g. robot.local. Others are refused."
+            ),
+        ),
 
         Node(
             package="robot_console",
@@ -68,6 +91,13 @@ def generate_launch_description() -> LaunchDescription:
                 # Typed, because a launch argument is text and the node
                 # declares an integer: an untyped one is rejected at start-up.
                 "port": ParameterValue(LaunchConfiguration("port"), value_type=int),
+                "resident_host": LaunchConfiguration("resident_host"),
+                "resident_port": ParameterValue(
+                    LaunchConfiguration("resident_port"), value_type=int
+                ),
+                "allowed_hosts": ParameterValue(
+                    LaunchConfiguration("allowed_hosts"), value_type=str
+                ),
             }],
         ),
     ])
