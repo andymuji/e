@@ -5,7 +5,7 @@ A map of this folder, in the order worth reading them.
 How it is laid out:
 
 - `safety/` — the hazard analysis, the stop-test procedure, the wiring checklist.
-- `guides/` — getting started, the proof-of-concept plan, privacy.
+- `guides/` — getting started, the proof-of-concept plan, privacy, useful outside projects.
 - `runs/` — recorded runs, the paper stop-test form, and the room scans.
 - `decisions/` — why the big choices were made.
 - `foxglove/` — the saved layout for watching the robot in Foxglove.
@@ -35,6 +35,10 @@ stages in order, each ending in something you can see working.
 **[safety/wiring-checklist.md](safety/wiring-checklist.md)** — wiring the battery, the
 emergency stop, the motor drivers and the Pico, one check per step, with the
 wheels in the air throughout.
+
+**[guides/useful-repos.md](guides/useful-repos.md)** — other people's code and
+Claude add-ons worth using, grouped by when we will need them, with license and
+safety notes.
 
 ## Evidence
 
