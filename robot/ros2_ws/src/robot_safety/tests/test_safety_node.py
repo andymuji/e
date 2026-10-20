@@ -49,7 +49,7 @@ class SafetyNodeTests(unittest.TestCase):
         self.node._velocity_publisher = self.published
 
         requested = Twist()
-        requested.linear.x = 1.0
+        requested.linear.x = 0.5
         self.node._on_velocity(requested)
 
     def tearDown(self) -> None:
@@ -65,7 +65,7 @@ class SafetyNodeTests(unittest.TestCase):
         self.node._publish_safe_velocity()
 
         self.assertEqual(len(self.published.messages), 1)
-        self.assertAlmostEqual(self.published.messages[-1].linear.x, 0.35)
+        self.assertAlmostEqual(self.published.messages[-1].linear.x, 0.175)
 
     def test_emergency_stop_overrides_requested_velocity(self) -> None:
         scan = LaserScan()
@@ -115,7 +115,7 @@ class SafetyNodeTests(unittest.TestCase):
         self.node._on_emergency_stop_reset(Bool(data=True))
         self.node._publish_safe_velocity()
 
-        self.assertAlmostEqual(self.published.messages[-1].linear.x, 1.0)
+        self.assertAlmostEqual(self.published.messages[-1].linear.x, 0.5)
 
     def test_missing_scan_stops_robot(self) -> None:
         self.node._publish_safe_velocity()
@@ -183,7 +183,7 @@ class SafetyNodeAdversarialTests(unittest.TestCase):
         self.node._velocity_publisher = self.published
 
         requested = Twist()
-        requested.linear.x = 1.0
+        requested.linear.x = 0.5
         self.node._on_velocity(requested)
 
     def tearDown(self) -> None:
@@ -213,7 +213,7 @@ class SafetyNodeAdversarialTests(unittest.TestCase):
     def test_an_unusable_scan_replaces_the_last_good_one(self) -> None:
         # The old clear reading must not survive a scan that says nothing.
         self.node._on_scan(scan(2.0))
-        self.assertAlmostEqual(self.last(), 1.0)
+        self.assertAlmostEqual(self.last(), 0.5)
 
         self.node._on_scan(scan(float("nan"), float("inf"), 20.0))
 
@@ -250,7 +250,7 @@ class SafetyNodeAdversarialTests(unittest.TestCase):
 
         self.node._on_scan(scan(2.0))
 
-        self.assertAlmostEqual(self.last(), 1.0)
+        self.assertAlmostEqual(self.last(), 0.5)
 
     def test_a_clock_that_jumps_backwards_stops_until_fresh_data(self) -> None:
         # A simulator reset rewinds sim time, leaving every timestamp in the
@@ -261,16 +261,15 @@ class SafetyNodeAdversarialTests(unittest.TestCase):
         self.assertEqual(self.last(), 0.0)
 
         requested = Twist()
-        requested.linear.x = 1.0
+        requested.linear.x = 0.5
         self.node._on_velocity(requested)
         self.node._on_scan(scan(2.0))
 
-        self.assertAlmostEqual(self.last(), 1.0)
+        self.assertAlmostEqual(self.last(), 0.5)
 
-    # DEFECT: a stop multiplies the request by 0.0, and NaN * 0.0 and
+    # Was a defect: a stop multiplies the request by 0.0, and NaN * 0.0 and
     # inf * 0.0 are NaN. A commander that emits a non-finite velocity puts NaN
     # on /cmd_vel while the gate reports "stop", including under the e-stop.
-    @unittest.expectedFailure
     def test_a_non_finite_request_is_still_zero_in_a_stop(self) -> None:
         requested = Twist()
         requested.linear.x = float("nan")
@@ -282,11 +281,10 @@ class SafetyNodeAdversarialTests(unittest.TestCase):
 
         self.assertEqual(velocities(self.published.messages[-1]), [0.0] * 6)
 
-    # DEFECT: _on_scan discards -inf and anything below range_min. REP 117
+    # Was a defect: _on_scan discards -inf and anything below range_min. REP 117
     # defines -inf as "too close to the sensor to measure", so an obstacle
     # pressed against the nose (0.05 m ahead of the lidar, inside its 0.08 m
     # range_min) vanishes, and the far wall makes the path read as clear.
-    @unittest.expectedFailure
     def test_an_obstacle_too_close_to_measure_stops_the_robot(self) -> None:
         commanded = []
         for too_close in (float("-inf"), 0.05):
@@ -295,12 +293,11 @@ class SafetyNodeAdversarialTests(unittest.TestCase):
 
         self.assertEqual(commanded, [0.0, 0.0])
 
-    # DEFECT: the gate passes any requested speed through unbounded. The
+    # Was a defect: the gate passes any requested speed through unbounded. The
     # stop and caution distances were derived for base_dynamics.yaml's
     # max_speed, and the only thing enforcing it is the Gazebo DiffDrive cap,
     # which does not exist on hardware. teleop_twist_keyboard can be keyed up
     # past it.
-    @unittest.expectedFailure
     def test_the_gate_never_exceeds_the_speed_its_distances_assume(self) -> None:
         import yaml
 
@@ -331,7 +328,7 @@ class SafetyNodeHealthTests(unittest.TestCase):
         self.node._velocity_publisher = self.published
 
         requested = Twist()
-        requested.linear.x = 1.0
+        requested.linear.x = 0.5
         self.node._on_velocity(requested)
 
         scan = LaserScan()
@@ -382,7 +379,7 @@ class SafetyNodeHealthTests(unittest.TestCase):
         self.node._on_tf(self.localizer_heartbeat())
         self.node._publish_safe_velocity()
 
-        self.assertAlmostEqual(self.published.messages[-1].linear.x, 1.0)
+        self.assertAlmostEqual(self.published.messages[-1].linear.x, 0.5)
 
     def test_a_standing_robot_stays_localized_on_the_transform_alone(self) -> None:
         """The deadlock this replaced: no amcl_pose while the robot stands.
@@ -401,7 +398,7 @@ class SafetyNodeHealthTests(unittest.TestCase):
         self.node._on_tf(self.localizer_heartbeat())
         self.node._publish_safe_velocity()
 
-        self.assertAlmostEqual(self.published.messages[-1].linear.x, 1.0)
+        self.assertAlmostEqual(self.published.messages[-1].linear.x, 0.5)
 
     def test_an_unrelated_transform_is_not_a_localization_heartbeat(self) -> None:
         # odom->base_footprint comes from the wheels and is published whether
@@ -461,7 +458,7 @@ class SafetyNodeHealthTests(unittest.TestCase):
         self.node._on_battery(message)
         self.node._publish_safe_velocity()
 
-        self.assertAlmostEqual(self.published.messages[-1].linear.x, 1.0)
+        self.assertAlmostEqual(self.published.messages[-1].linear.x, 0.5)
 
     def test_a_driver_reporting_nan_is_not_treated_as_full(self) -> None:
         self.node._controller = SafetyController(low_battery_fraction=0.15)

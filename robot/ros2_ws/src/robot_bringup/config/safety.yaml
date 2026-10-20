@@ -23,6 +23,10 @@ safety_controller:
     # stop_distance.
     caution_distance: 0.85
 
+    # The gate caps travel speed here. Must match max_speed in
+    # base_dynamics.yaml - the distances above assume it.
+    max_speed: 0.5
+
     # A scan older than this is treated as no scan at all.
     sensor_timeout: 0.5
     # A motion request older than this is discarded rather than held.

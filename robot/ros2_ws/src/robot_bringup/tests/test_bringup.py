@@ -225,6 +225,13 @@ class SafetyDistanceDerivationTests(unittest.TestCase):
         self.assertTrue(navigation["require_localization"])
         self.assertGreater(navigation["max_localization_covariance"], 0.0)
 
+    def test_every_gate_caps_speed_at_the_speed_its_distances_assume(
+        self,
+    ) -> None:
+        for name, params in self.parameter_files.items():
+            with self.subTest(name):
+                self.assertEqual(params["max_speed"], self.dynamics.max_speed)
+
     def test_control_rate_matches_the_control_period_it_was_derived_from(
         self,
     ) -> None:

@@ -40,6 +40,9 @@ class SafetyNode(Node):
 
         self.declare_parameter("stop_distance", 0.45)
         self.declare_parameter("caution_distance", 0.85)
+        # The speed the two distances were derived for (base_dynamics.yaml).
+        # On hardware nothing downstream caps it, so the gate does.
+        self.declare_parameter("max_speed", 0.5)
         self.declare_parameter("sensor_timeout", 0.5)
         self.declare_parameter("command_timeout", 0.5)
         self.declare_parameter("control_rate_hz", 20.0)
@@ -57,6 +60,9 @@ class SafetyNode(Node):
 
         stop_distance = float(self.get_parameter("stop_distance").value)
         caution_distance = float(self.get_parameter("caution_distance").value)
+        self._max_speed = float(self.get_parameter("max_speed").value)
+        if not math.isfinite(self._max_speed) or self._max_speed <= 0.0:
+            raise ValueError("max_speed must be finite and greater than zero")
         sensor_timeout = float(self.get_parameter("sensor_timeout").value)
         command_timeout = float(self.get_parameter("command_timeout").value)
         control_rate_hz = float(self.get_parameter("control_rate_hz").value)
@@ -124,11 +130,15 @@ class SafetyNode(Node):
         self._last_command_time = self._now()
 
     def _on_scan(self, message: LaserScan) -> None:
+        # REP 117: -inf, or a reading under range_min, is something too close
+        # to measure - the nearest obstacle there is, not one to discard.
+        # +inf (nothing in range) and NaN (no return) still say nothing.
         valid_ranges = [
-            distance
+            0.0 if distance == -math.inf or 0.0 <= distance < message.range_min
+            else distance
             for distance in message.ranges
-            if math.isfinite(distance)
-            and message.range_min <= distance <= message.range_max
+            if distance == -math.inf
+            or (math.isfinite(distance) and 0.0 <= distance <= message.range_max)
         ]
         self._nearest_obstacle = min(valid_ranges) if valid_ranges else None
         self._last_scan_time = self._now()
@@ -209,13 +219,28 @@ class SafetyNode(Node):
             battery_fraction=self._battery_fraction,
         )
 
+        request = self._requested_velocity
+        components = [
+            request.linear.x, request.linear.y, request.linear.z,
+            request.angular.x, request.angular.y, request.angular.z,
+        ]
+        # NaN * 0.0 is NaN, so a broken commander would leak through a stop.
+        # A request with any non-finite part is not a request: drive nothing.
+        if not all(map(math.isfinite, components)):
+            request = Twist()
+        scale = decision.speed_scale
+        # Cap the travel speed (mecanum moves in x and y) at the speed the
+        # stop and caution distances assume. Turning rate is not capped here.
+        travel = math.hypot(request.linear.x, request.linear.y, request.linear.z)
+        linear_scale = scale * min(1.0, self._max_speed / travel) if travel else scale
+
         safe = Twist()
-        safe.linear.x = self._requested_velocity.linear.x * decision.speed_scale
-        safe.linear.y = self._requested_velocity.linear.y * decision.speed_scale
-        safe.linear.z = self._requested_velocity.linear.z * decision.speed_scale
-        safe.angular.x = self._requested_velocity.angular.x * decision.speed_scale
-        safe.angular.y = self._requested_velocity.angular.y * decision.speed_scale
-        safe.angular.z = self._requested_velocity.angular.z * decision.speed_scale
+        safe.linear.x = request.linear.x * linear_scale
+        safe.linear.y = request.linear.y * linear_scale
+        safe.linear.z = request.linear.z * linear_scale
+        safe.angular.x = request.angular.x * scale
+        safe.angular.y = request.angular.y * scale
+        safe.angular.z = request.angular.z * scale
         self._velocity_publisher.publish(safe)
 
         # Drop the stale request so a resumed command stream cannot replay it.
