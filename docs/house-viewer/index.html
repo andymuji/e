@@ -1,0 +1,248 @@
+<title>Practice House Routes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: an architect's floor plan on the left, the trip planner and a distance table on the right; stacks on phones. */
+:root {
+  --paper: #eef1f4;
+  --sheet: #f8fafb;
+  --ink: #1d2b3a;
+  --muted: #5d6b7a;
+  --wall: #22324a;
+  --room: #dde5ec;
+  --line: #c4ced8;
+  --route: #d9622b;
+  --route-soft: rgba(217, 98, 43, 0.22);
+  --robot: #1f7a6d;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --data: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121a24; --sheet: #18222e; --ink: #e3e9ef; --muted: #93a2b1;
+    --wall: #c9d6e3; --room: #223142; --line: #34475b;
+    --route: #f08a52; --route-soft: rgba(240, 138, 82, 0.25); --robot: #4cc1ad;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121a24; --sheet: #18222e; --ink: #e3e9ef; --muted: #93a2b1;
+  --wall: #c9d6e3; --room: #223142; --line: #34475b;
+  --route: #f08a52; --route-soft: rgba(240, 138, 82, 0.25); --robot: #4cc1ad;
+  color-scheme: dark;
+}
+body {
+  background: var(--paper); color: var(--ink); font: 16px/1.5 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 40px;
+}
+main { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+header h1 { font: 600 1.9rem/1.15 var(--display); margin: 0; text-wrap: balance; letter-spacing: 0.01em; }
+header p { margin: 6px 0 0; color: var(--muted); max-width: 65ch; }
+.layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.sheet { background: var(--sheet); border: 1px solid var(--line); border-radius: 6px; padding: 16px; min-width: 0; }
+.stack { display: grid; gap: 14px; }
+.plan svg { width: 100%; height: auto; display: block; }
+.label { font: 600 0.72rem var(--display); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.panel { display: grid; gap: 16px; min-width: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.field { display: grid; gap: 4px; flex: 1 1 130px; }
+select, button { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 4px; padding: 7px 10px; }
+button { cursor: pointer; font-weight: 700; }
+button.go { background: var(--route); border-color: var(--route); color: #fff; }
+button[aria-pressed="true"] { border-color: var(--route); color: var(--route); }
+:focus-visible { outline: 2px solid var(--route); outline-offset: 2px; }
+.houses { display: flex; flex-wrap: wrap; gap: 6px; }
+.houses button { font: 500 0.9rem var(--data); padding: 5px 10px; }
+.trip { font: 500 1.05rem var(--display); }
+.trip b { font-family: var(--data); font-weight: 500; color: var(--route); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; font: 0.8rem var(--data); font-variant-numeric: tabular-nums; }
+th { font: 600 0.7rem var(--display); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 4px 6px; text-align: left; white-space: nowrap; }
+thead th { writing-mode: vertical-rl; transform: rotate(180deg); vertical-align: bottom; height: 7.5em; }
+td { padding: 0; border: 1px solid var(--line); }
+td button { border: 0; border-radius: 0; background: none; font: inherit; font-weight: 400; padding: 5px 6px; width: 100%; text-align: right; }
+td button:hover, td button.on { background: var(--route-soft); }
+td.self { background: var(--room); }
+.note { font-size: 0.85rem; color: var(--muted); margin: 0; max-width: 65ch; }
+svg text { font-family: var(--display); }
+</style>
+
+<main>
+  <header>
+    <h1>Practice House Routes</h1>
+    <p>A made-up home for the robot to learn on. Pick where it starts and where it goes, and watch the shortest trip that keeps the whole robot clear of walls and through the doorways.</p>
+  </header>
+
+  <div class="layout">
+    <section class="sheet plan" aria-label="Floor plan">
+      <svg id="plan" role="img" aria-label="Floor plan with the robot's route"></svg>
+    </section>
+
+    <section class="panel">
+      <div class="sheet stack">
+        <div class="stack" style="gap:6px">
+          <span class="label">House</span>
+          <div class="houses" id="houses"></div>
+        </div>
+        <div class="row">
+          <label class="field"><span class="label">From</span><select id="from"></select></label>
+          <label class="field"><span class="label">To</span><select id="to"></select></label>
+        </div>
+        <div class="row">
+          <button class="go" id="drive">Drive</button>
+          <button id="all" aria-pressed="false">Show every route</button>
+        </div>
+        <div class="trip" id="trip" aria-live="polite"></div>
+      </div>
+
+      <div class="sheet stack" style="gap:10px">
+        <span class="label">Trip length in metres · tap one to show it</span>
+        <div class="table-wrap"><table id="table"></table></div>
+      </div>
+
+      <p class="note">The green circle is the robot at its planned size (<span id="radius"></span> m across the corners). That size is still a placeholder until the real base is measured. These routes are a preview: the robot's own navigation software plans its own way and may take slightly different lines.</p>
+    </section>
+  </div>
+</main>
+
+<script src="houses.js"></script>
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("plan");
+const $ = (id) => document.getElementById(id);
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let house, from = "front door", to = "bedroom", showAll = false, anim = 0;
+
+const el = (tag, attrs, parent = svg) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  parent.appendChild(e);
+  return e;
+};
+const title = (s) => s.replace(/\b\w/g, (c) => c.toUpperCase());
+const Y = (y) => house.height - y; // SVG grows downward; the house's y grows up.
+
+function route(a, b) {
+  const r = house.routes.find((r) => (r.from === a && r.to === b) || (r.from === b && r.to === a));
+  return { length: r.length, path: r.from === a ? r.path : [...r.path].reverse() };
+}
+
+function draw() {
+  cancelAnimationFrame(anim);
+  svg.replaceChildren();
+  const pad = 0.6;
+  svg.setAttribute("viewBox", `${-pad} ${-pad} ${house.width + 2 * pad} ${house.height + 2 * pad + 0.5}`);
+
+  for (const [x0, y0, x1, y1] of Object.values(house.rooms)) {
+    el("rect", { x: x0, y: Y(y1), width: x1 - x0, height: y1 - y0, fill: "var(--room)" });
+  }
+  if (showAll) {
+    for (const r of house.routes) {
+      el("polyline", { points: r.path.map(([x, y]) => `${x},${Y(y)}`).join(" "), fill: "none", stroke: "var(--route)", "stroke-width": 0.04, "stroke-opacity": 0.45, "stroke-linejoin": "round" });
+    }
+  }
+  const trip = from === to ? { length: 0, path: [house.locations[from]] } : route(from, to);
+  const pts = trip.path.map(([x, y]) => [x, Y(y)]);
+  if (pts.length > 1) {
+    el("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--route-soft)", "stroke-width": house.robot_radius * 2, "stroke-linecap": "round", "stroke-linejoin": "round" });
+    el("polyline", { points: pts.join(" "), fill: "none", stroke: "var(--route)", "stroke-width": 0.06, "stroke-dasharray": "0.15 0.1", "stroke-linejoin": "round" });
+  }
+  for (const [x, y, sx, sy] of house.walls) {
+    el("rect", { x: x - sx / 2, y: Y(y) - sy / 2, width: sx, height: sy, fill: "var(--wall)" });
+  }
+  for (const [name, [x, y]] of Object.entries(house.locations)) {
+    const on = name === from || name === to;
+    el("circle", { cx: x, cy: Y(y), r: on ? 0.11 : 0.07, fill: on ? "var(--route)" : "var(--muted)" });
+    const t = el("text", { x, y: Y(y) - 0.22, "text-anchor": "middle", "font-size": 0.3, "font-weight": 600, fill: "var(--ink)" });
+    t.textContent = title(name);
+  }
+  // Scale bar: one metre.
+  const sy = house.height + 0.35;
+  el("rect", { x: 0, y: sy, width: 1, height: 0.06, fill: "var(--ink)" });
+  const s = el("text", { x: 1.15, y: sy + 0.1, "font-size": 0.22, fill: "var(--muted)" });
+  s.textContent = `1 m  ·  house ${house.width} × ${house.height} m`;
+
+  const robot = el("circle", { r: house.robot_radius, fill: "var(--robot)", "fill-opacity": 0.85, stroke: "var(--sheet)", "stroke-width": 0.03 });
+  const place = ([x, y]) => { robot.setAttribute("cx", x); robot.setAttribute("cy", y); };
+  place(pts[0]);
+  $("trip").innerHTML = from === to
+    ? "Pick two different places."
+    : `${title(from)} → ${title(to)}: <b>${trip.length.toFixed(2)} m</b>`;
+  return { pts, place };
+}
+
+function drive() {
+  const { pts, place } = draw();
+  if (pts.length < 2) return;
+  if (reduced) return place(pts.at(-1));
+  const legs = pts.slice(1).map((p, i) => Math.hypot(p[0] - pts[i][0], p[1] - pts[i][1]));
+  const total = legs.reduce((a, b) => a + b, 0);
+  const speed = 1.5; // Metres per second on screen, sped up so long trips don't drag.
+  const t0 = performance.now();
+  const step = (now) => {
+    let d = Math.min(total, ((now - t0) / 1000) * speed);
+    let i = 0;
+    while (i < legs.length - 1 && d > legs[i]) d -= legs[i++];
+    const f = legs[i] ? Math.min(1, d / legs[i]) : 1;
+    place([pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f]);
+    if (((now - t0) / 1000) * speed < total) anim = requestAnimationFrame(step);
+  };
+  anim = requestAnimationFrame(step);
+}
+
+function table() {
+  const names = Object.keys(house.locations).sort();
+  const t = $("table");
+  t.replaceChildren();
+  const head = t.createTHead().insertRow();
+  head.appendChild(document.createElement("th"));
+  for (const n of names) head.appendChild(Object.assign(document.createElement("th"), { textContent: title(n) }));
+  const body = t.createTBody();
+  for (const a of names) {
+    const row = body.insertRow();
+    row.appendChild(Object.assign(document.createElement("th"), { textContent: title(a), scope: "row" }));
+    for (const b of names) {
+      const cell = row.insertCell();
+      if (a === b) { cell.className = "self"; continue; }
+      const length = route(a, b).length.toFixed(1);
+      const btn = Object.assign(document.createElement("button"), { textContent: length });
+      btn.id = `trip-${a}-${b}`.replace(/\s/g, "-");
+      if (a === from && b === to) btn.className = "on";
+      btn.setAttribute("aria-label", `${title(a)} to ${title(b)}, ${length} metres`);
+      btn.onclick = () => { from = a; to = b; sync(); drive(); };
+      cell.appendChild(btn);
+    }
+  }
+}
+
+function sync() {
+  for (const [id, val] of [["from", from], ["to", to]]) {
+    $(id).replaceChildren(...Object.keys(house.locations).sort().map((n) => new Option(title(n), n, false, n === val)));
+  }
+  $("radius").textContent = (house.robot_radius * 2).toFixed(2);
+  table();
+}
+
+function pick(i) {
+  house = window.HOUSES[i];
+  $("houses").querySelectorAll("button").forEach((b, j) => b.setAttribute("aria-pressed", String(j === i)));
+  sync();
+  drive();
+}
+
+window.HOUSES.forEach((h, i) => {
+  const b = Object.assign(document.createElement("button"), { textContent: `#${h.seed}`, id: `house-${h.seed}` });
+  b.onclick = () => pick(i);
+  $("houses").appendChild(b);
+});
+$("from").onchange = (e) => { from = e.target.value; sync(); drive(); };
+$("to").onchange = (e) => { to = e.target.value; sync(); drive(); };
+$("drive").onclick = drive;
+$("all").onclick = () => { showAll = !showAll; $("all").setAttribute("aria-pressed", String(showAll)); drive(); };
+pick(0);
+</script>
