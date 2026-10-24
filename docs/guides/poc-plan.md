@@ -172,17 +172,18 @@ includes any elder or other vulnerable person.
 
 Bought on 2026-09-26, from [the 09-26 list](#what-changed-on-2026-09-30-and-why):
 
-| Part | Notes |
-|---|---|
-| LD14P lidar kit (D200) | Includes the lidar's USB adapter |
-| Mecanum chassis + 4 motors with wheel sensors | Which variant arrived, and its wheel-sensor voltage, are [still to check](#still-to-check-and-by-whom) |
-| BTS7960 motor drivers, pack of 4 | |
-| ExpertPower 12 V 10 Ah LiFePO4 battery | Model EP1210. Its terminals are "F2" flat tabs, 0.25 inch wide |
-| 14.6 V 2 A LiFePO4 charger | |
-| Raspberry Pi Pico H | Pins already soldered on |
-| 12-AWG red and black wire, 25 ft | |
-| 30 A inline fuse holder (ATC) | Takes the ordinary flat car fuses. **No fuse in it yet** |
-| Ring terminal / heat-shrink kit | **Ring terminals don't fit the battery's F2 tabs.** Check whether the kit also has 0.25-inch female spade connectors |
+| Part | Price | Notes |
+|---|---|---|
+| [LD14P lidar kit (D200)](https://www.robotshop.com/products/360-omni-directional-triangulation-lidar-8m-d200-developer-kit-w-ld14p-lidar) | $66 | Includes the lidar's USB adapter |
+| [Mecanum chassis + 4 motors with wheel sensors](https://www.aliexpress.us/item/1005007657235415.html) | $109 | Which variant arrived, and its wheel-sensor voltage, are [still to check](#still-to-check-and-by-whom) |
+| [BTS7960 motor drivers, pack of 4](https://www.aliexpress.us/item/3256809346254900.html) | $21 | |
+| [ExpertPower 12 V 10 Ah LiFePO4 battery](https://www.amazon.com/dp/B0DJ2J6R25) | $40 | Model EP1210. Its terminals are "F2" flat tabs, 0.25 inch wide |
+| [14.6 V 2 A LiFePO4 charger](https://www.amazon.com/Charger-Intelligent-Charge-LiFePO4-Battery/dp/B085RXS63Q) | $18 | |
+| [Raspberry Pi Pico H](https://www.pishop.us/product/raspberry-pi-pico-h-pre-soldered-headers/) | $5 | Pins already soldered on |
+| [12-AWG red and black wire, 25 ft](https://houstonhamradio.com/products/bonded-zip-cord-12-awg-cable-red-black-25-feet?variant=50765858210023) | $15 | |
+| [30 A inline fuse holder (ATC)](https://www.walmart.com/ip/ATC-30A-INLINE-FUSE-HOLDER-HHD/18734411595) | $5 | Takes the ordinary flat car fuses. **No fuse in it yet** |
+| [Ring terminal / heat-shrink kit](https://www.walmart.com/ip/17224509301) | $13 | **Ring terminals don't fit the battery's F2 tabs.** Check whether the kit also has 0.25-inch female spade connectors |
+| **Total** | **$292** | Before tax and shipping |
 
 Owned before:
 
