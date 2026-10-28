@@ -8,7 +8,7 @@
 
   DiffDrive listens on /cmd_vel and nothing else may publish there. Anything
   that wants the robot to move publishes /cmd_vel_requested and lets the
-  safety gate decide. See docs/safety-test-procedure.md.
+  safety gate decide. See docs/safety/safety-test-procedure.md.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 

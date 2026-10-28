@@ -16,7 +16,7 @@ never be something a recording tool can perform. A witness that can also act
 is no longer a witness.
 
 Recording does not replace the physical emergency-stop test in
-docs/safety-test-procedure.md. It produces evidence about one run; the
+docs/safety/safety-test-procedure.md. It produces evidence about one run; the
 physical test is about whether the robot can be stopped at all.
 """
 

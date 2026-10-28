@@ -3,7 +3,11 @@ import http.client
 from http.server import ThreadingHTTPServer
 import io
 import json
+import os
 from pathlib import Path
+import re
+import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -12,6 +16,7 @@ from unittest.mock import Mock, patch
 from robot_core import Pose2D
 from robot_locations import LocationStore
 
+import web_ui.app as app_module
 from web_ui.app import (
     BadRequest,
     DemoGoalDispatcher,
@@ -19,6 +24,7 @@ from web_ui.app import (
     RobotWebApp,
     SafetyScenarioAdapter,
     make_handler,
+    make_resident_handler,
 )
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -224,6 +230,42 @@ class RobotWebAppTests(unittest.TestCase):
         status = self.app.engage_emergency_stop()
 
         self.assertEqual(status["goal"]["state"], "cancelled")
+
+    def test_a_stop_pressed_as_the_trip_ends_still_answers(self) -> None:
+        # The trip can finish between the stop reading it as active and
+        # cancelling it. The latch is down either way; answering the STOP
+        # button with an error would tell the operator it had not worked.
+        self.app.send_goal("kitchen")
+
+        def already_over(goal_id: str) -> None:
+            raise ValueError("no matching active goal")
+
+        self.dispatcher.cancel_goal = already_over
+
+        status = self.app.engage_emergency_stop()
+        self.assertTrue(status["safety"]["emergency_stop"])
+        self.assertEqual(self.app.handle_voice_command("stop")["action"], "stop")
+
+    def test_a_goal_racing_the_stop_is_not_left_behind_the_latch(self) -> None:
+        # The goal passes the latch check, and the stop lands before it is
+        # dispatched. Left alone, that trip sits behind the latch and drives
+        # off the moment someone resets it.
+        stopper = []
+        check = self.safety.motion_refusal
+
+        def refusal_as_the_stop_is_pressed():
+            answer = check()
+            stopper.append(threading.Thread(target=self.app.engage_emergency_stop))
+            stopper[0].start()
+            stopper[0].join(timeout=0.2)
+            return answer
+
+        self.safety.motion_refusal = refusal_as_the_stop_is_pressed
+
+        self.app.send_goal("kitchen")
+        stopper[0].join(timeout=5)
+
+        self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
 
     def test_no_goal_can_be_sent_while_stopped(self) -> None:
         self.app.engage_emergency_stop()
@@ -518,6 +560,65 @@ class RobotHttpApiTests(unittest.TestCase):
         self.assertEqual(status, 409)
         self.assertIn("emergency stop", payload["error"])
 
+    def test_another_site_cannot_release_the_stop_or_send_the_robot(self) -> None:
+        # What a page elsewhere in the operator's browser can send without
+        # the console's permission: a form post or a no-cors fetch, neither
+        # of which can be JSON, and a foreign Origin on anything it sends.
+        self.call("POST", "/api/emergency_stop")
+        cross_site = [
+            {"Content-Type": "text/plain"},
+            {"Content-Type": "application/x-www-form-urlencoded"},
+            {"Origin": "http://evil.example"},
+            {"Origin": "null"},
+        ]
+
+        for headers in cross_site:
+            with self.subTest(headers=headers):
+                status, _ = self.call("POST", "/api/emergency_stop/reset", "", headers)
+                self.assertEqual(status, 403)
+                status, _ = self.call(
+                    "POST", "/api/goals", '{"location_name":"kitchen"}', headers
+                )
+                self.assertEqual(status, 403)
+
+        _, body = self.call("GET", "/api/status")
+        self.assertTrue(body["safety"]["emergency_stop"])
+        self.assertEqual(body["goal"]["state"], "ready")
+
+    def test_the_stop_is_engaged_whoever_asks(self) -> None:
+        status, body = self.call(
+            "POST", "/api/emergency_stop", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["safety"]["emergency_stop"])
+
+    def test_a_trip_is_cancelled_whoever_asks(self) -> None:
+        # Cancelling only ever ends a trip, so like the stop it must never
+        # fail on a header.
+        self.call("POST", "/api/goals", '{"location_name":"kitchen"}')
+
+        status, _ = self.call(
+            "POST", "/api/goals/cancel", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        _, body = self.call("GET", "/api/status")
+        self.assertEqual(body["goal"]["state"], "cancelled")
+
+    def test_the_consoles_own_page_can_still_reset(self) -> None:
+        self.call("POST", "/api/emergency_stop")
+
+        status, body = self.call(
+            "POST", "/api/emergency_stop/reset", "",
+            {"Origin": f"http://127.0.0.1:{self.port}"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertFalse(body["safety"]["emergency_stop"])
+
     def test_unknown_routes_answer_json(self) -> None:
         for method, path in (("GET", "/api/nope"), ("POST", "/api/nope")):
             with self.subTest(method=method, path=path):
@@ -548,6 +649,317 @@ class RobotHttpApiTests(unittest.TestCase):
 
         self.assertEqual(status, 500)
         self.assertIn("error", payload)
+
+
+class ResidentHttpApiTests(unittest.TestCase):
+    """The resident's tablet page: go somewhere, cancel, stop. Nothing else.
+
+    The page hides what it does not offer, but hiding a button is not a
+    control. Each refusal here is the server's, so a resident's tablet - or
+    anything else on the home network that finds the port - cannot release
+    the stop, change the saved rooms, or reach the developer console.
+    """
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        store = LocationStore(Path(self.directory.name) / "locations.json")
+        store.save_location("kitchen", Pose2D(1.0, 2.0))
+        self.app = RobotWebApp(store, DemoGoalDispatcher(), SafetyScenarioAdapter())
+        self.server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), make_resident_handler(self.app, WEB_ROOT)
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.port = self.server.server_address[1]
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.directory.cleanup()
+
+    def call(self, method, path, body=None, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        try:
+            request_headers = {"Content-Type": "application/json"}
+            if headers:
+                request_headers.update(headers)
+            connection.request(method, path, body=body, headers=request_headers)
+            response = connection.getresponse()
+            raw = response.read().decode("utf-8")
+            try:
+                return response.status, json.loads(raw)
+            except json.JSONDecodeError:
+                return response.status, raw
+        finally:
+            connection.close()
+
+    def test_the_resident_page_and_its_assets_are_served(self) -> None:
+        for path in ("/", "/resident.html", "/resident.js", "/resident.css"):
+            with self.subTest(path=path):
+                status, _ = self.call("GET", path)
+                self.assertEqual(status, 200)
+
+    def test_the_root_is_the_resident_page_not_the_console(self) -> None:
+        _, body = self.call("GET", "/")
+
+        self.assertIn("resident.js", body)
+        self.assertNotIn("app.js", body)
+
+    def test_the_developer_console_is_not_served(self) -> None:
+        for path in ("/index.html", "/app.js", "/styles.css"):
+            with self.subTest(path=path):
+                status, _ = self.call("GET", path)
+                self.assertEqual(status, 404)
+
+    def test_the_saved_rooms_and_status_can_be_read(self) -> None:
+        status, body = self.call("GET", "/api/locations")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["locations"][0]["name"], "kitchen")
+
+        status, body = self.call("GET", "/api/status")
+        self.assertEqual(status, 200)
+        self.assertFalse(body["safety"]["emergency_stop"])
+
+    def test_the_map_is_not_offered(self) -> None:
+        status, _ = self.call("GET", "/api/map")
+
+        self.assertEqual(status, 404)
+
+    def test_a_trip_can_be_started_and_cancelled(self) -> None:
+        status, body = self.call("POST", "/api/goals", '{"location_name":"kitchen"}')
+        self.assertEqual(status, 201)
+        self.assertEqual(body["location_name"], "kitchen")
+
+        status, _ = self.call("POST", "/api/goals/cancel")
+        self.assertEqual(status, 200)
+        self.assertEqual(self.app.status()["goal"]["state"], "cancelled")
+
+    def test_the_stop_can_be_engaged(self) -> None:
+        status, body = self.call("POST", "/api/emergency_stop")
+
+        self.assertEqual(status, 200)
+        self.assertTrue(body["safety"]["emergency_stop"])
+        self.assertTrue(self.app.safety.emergency_stop_engaged)
+
+    def test_the_stop_cannot_be_reset_from_here(self) -> None:
+        self.call("POST", "/api/emergency_stop")
+
+        status, _ = self.call("POST", "/api/emergency_stop/reset")
+
+        self.assertEqual(status, 404)
+        # Refused, not merely answered: the latch is still down.
+        self.assertTrue(self.app.safety.emergency_stop_engaged)
+
+    def test_the_reset_is_refused_even_from_the_pages_own_origin(self) -> None:
+        self.call("POST", "/api/emergency_stop")
+
+        status, _ = self.call(
+            "POST", "/api/emergency_stop/reset", "",
+            {"Origin": f"http://127.0.0.1:{self.port}"},
+        )
+
+        self.assertEqual(status, 404)
+        self.assertTrue(self.app.safety.emergency_stop_engaged)
+
+    def test_the_safety_scenario_cannot_be_changed(self) -> None:
+        status, _ = self.call("POST", "/api/safety/scenario", '{"scenario":"stop"}')
+
+        self.assertEqual(status, 404)
+        self.assertEqual(self.app.status()["safety"]["scenario"], "clear")
+
+    def test_rooms_cannot_be_saved(self) -> None:
+        status, _ = self.call(
+            "POST", "/api/locations", '{"name":"garden","x":0,"y":0}'
+        )
+
+        self.assertEqual(status, 404)
+        names = [place["name"] for place in self.app.locations()["locations"]]
+        self.assertEqual(names, ["kitchen"])
+
+    def test_rooms_cannot_be_removed(self) -> None:
+        status, _ = self.call("POST", "/api/locations/remove", '{"name":"kitchen"}')
+
+        self.assertEqual(status, 404)
+        self.assertEqual(len(self.app.locations()["locations"]), 1)
+
+    def test_voice_commands_are_not_accepted(self) -> None:
+        status, _ = self.call("POST", "/api/voice", '{"transcript":"go to the kitchen"}')
+
+        self.assertEqual(status, 404)
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_unknown_routes_are_refused(self) -> None:
+        for method, path in (("GET", "/api/nope"), ("POST", "/api/nope"), ("GET", "/nope")):
+            with self.subTest(method=method, path=path):
+                status, payload = self.call(method, path)
+                self.assertEqual(status, 404)
+                self.assertEqual(payload, {"error": "not found"})
+
+    def test_another_site_cannot_send_the_robot(self) -> None:
+        for headers in (
+            {"Content-Type": "text/plain"},
+            {"Content-Type": "application/x-www-form-urlencoded"},
+            {"Origin": "http://evil.example"},
+        ):
+            with self.subTest(headers=headers):
+                status, _ = self.call(
+                    "POST", "/api/goals", '{"location_name":"kitchen"}', headers
+                )
+                self.assertEqual(status, 403)
+
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_the_stop_is_engaged_whoever_asks(self) -> None:
+        status, _ = self.call(
+            "POST", "/api/emergency_stop", "",
+            {"Content-Type": "text/plain", "Origin": "http://evil.example"},
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(self.app.safety.emergency_stop_engaged)
+
+    def test_one_backend_serves_both_pages(self) -> None:
+        # A stop pressed on the tablet is the stop the developer console sees,
+        # and only the developer console can release it.
+        console = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(self.app, WEB_ROOT))
+        thread = threading.Thread(target=console.serve_forever, daemon=True)
+        thread.start()
+        try:
+            self.call("POST", "/api/emergency_stop")
+            connection = http.client.HTTPConnection(
+                "127.0.0.1", console.server_address[1], timeout=5
+            )
+            connection.request("GET", "/api/status")
+            body = json.loads(connection.getresponse().read())
+            connection.close()
+        finally:
+            console.shutdown()
+            console.server_close()
+            thread.join(timeout=5)
+
+        self.assertTrue(body["safety"]["emergency_stop"])
+
+    def test_other_methods_are_refused(self) -> None:
+        for method in ("HEAD", "OPTIONS", "PUT", "DELETE", "PATCH"):
+            with self.subTest(method=method):
+                status, _ = self.call(method, "/api/emergency_stop/reset")
+                self.assertEqual(status, 405)
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_near_misses_of_the_reset_are_refused(self) -> None:
+        self.call("POST", "/api/emergency_stop")
+
+        for path in (
+            "/api/emergency_stop/reset/",
+            "/api/emergency_stop/reset?x=1",
+            "//api/emergency_stop/reset",
+            "/api/emergency_stop/../emergency_stop/reset",
+            "/API/EMERGENCY_STOP/RESET",
+        ):
+            with self.subTest(path=path):
+                status, _ = self.call("POST", path)
+                self.assertEqual(status, 404)
+        self.assertTrue(self.app.safety.emergency_stop_engaged)
+
+    def test_a_query_string_does_not_widen_the_allow_list(self) -> None:
+        status, _ = self.call("GET", "/api/map?x=1")
+
+        self.assertEqual(status, 404)
+
+    def test_a_rebound_name_cannot_read_or_send_the_robot(self) -> None:
+        # DNS rebinding: a page on evil.example re-points its own name at
+        # this tablet server. Its Origin then matches its Host, so only the
+        # Host itself gives it away.
+        rebound = {
+            "Host": f"evil.example:{self.port}",
+            "Origin": f"http://evil.example:{self.port}",
+        }
+
+        for method, path in (("GET", "/"), ("GET", "/api/status"), ("GET", "/api/locations")):
+            with self.subTest(method=method, path=path):
+                status, _ = self.call(method, path, headers=rebound)
+                self.assertEqual(status, 421)
+        status, _ = self.call("POST", "/api/goals", '{"location_name":"kitchen"}', rebound)
+        self.assertEqual(status, 421)
+        self.assertEqual(self.app.status()["goal"]["state"], "ready")
+
+    def test_a_rebound_name_can_still_stop_and_cancel(self) -> None:
+        # The same fail-safe exemption as the cross-site check: both only
+        # ever end motion, and refusing a real one is the dangerous mistake.
+        rebound = {"Host": f"evil.example:{self.port}", "Content-Type": "text/plain"}
+        self.app.send_goal("kitchen")
+
+        self.assertEqual(self.call("POST", "/api/goals/cancel", "", rebound)[0], 200)
+        self.assertEqual(self.call("POST", "/api/emergency_stop", "", rebound)[0], 200)
+        self.assertTrue(self.app.safety.emergency_stop_engaged)
+
+    def test_ip_literals_and_localhost_are_accepted_hosts(self) -> None:
+        for host in (f"localhost:{self.port}", f"192.168.1.20:{self.port}", "[::1]:8081"):
+            with self.subTest(host=host):
+                status, _ = self.call("GET", "/api/status", headers={"Host": host})
+                self.assertEqual(status, 200)
+
+    def test_every_reply_carries_the_security_headers(self) -> None:
+        for method, path in (("GET", "/"), ("GET", "/api/status"), ("POST", "/api/nope")):
+            with self.subTest(method=method, path=path):
+                connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+                connection.request(method, path, body="", headers={"Content-Type": "application/json"})
+                response = connection.getresponse()
+                response.read()
+                connection.close()
+                self.assertEqual(response.getheader("X-Frame-Options"), "DENY")
+                self.assertEqual(response.getheader("Referrer-Policy"), "no-referrer")
+                policy = response.getheader("Content-Security-Policy")
+                self.assertIn("default-src 'self'", policy)
+                self.assertIn("frame-ancestors 'none'", policy)
+
+
+class AllowedHostsTests(unittest.TestCase):
+    """A name the household chose, e.g. robot.local, is accepted when listed."""
+
+    def serve(self, handler) -> int:
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def stop() -> None:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.addCleanup(stop)
+        return server.server_address[1]
+
+    def get(self, port: int, host: str) -> int:
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        connection.request("GET", "/api/status", headers={"Host": host})
+        status = connection.getresponse().status
+        connection.close()
+        return status
+
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        store = LocationStore(Path(self.directory.name) / "locations.json")
+        self.app = RobotWebApp(store, DemoGoalDispatcher(), SafetyScenarioAdapter())
+
+    def test_a_listed_name_is_accepted_on_both_servers(self) -> None:
+        for handler in (
+            make_handler(self.app, WEB_ROOT, allowed_hosts={"robot.local"}),
+            make_resident_handler(self.app, WEB_ROOT, allowed_hosts={"robot.local"}),
+        ):
+            port = self.serve(handler)
+            with self.subTest(handler=handler):
+                self.assertEqual(self.get(port, f"robot.local:{port}"), 200)
+                self.assertEqual(self.get(port, f"Robot.Local:{port}"), 200)
+                self.assertEqual(self.get(port, f"evil.example:{port}"), 421)
+
+    def test_the_developer_console_refuses_a_rebound_name_too(self) -> None:
+        port = self.serve(make_handler(self.app, WEB_ROOT))
+
+        self.assertEqual(self.get(port, f"evil.example:{port}"), 421)
+        self.assertEqual(self.get(port, f"127.0.0.1:{port}"), 200)
 
 
 class ConnectedAdapter:
@@ -649,6 +1061,21 @@ class PluggedInAdapterTests(unittest.TestCase):
         self.assertTrue(app.map_data()["walls"])
 
 
+def contrast(foreground: str, background: str) -> float:
+    """WCAG 2 contrast ratio between two #rrggbb colours."""
+
+    def luminance(colour: str) -> float:
+        channels = [int(colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+        r, g, b = (
+            c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+            for c in channels
+        )
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
 class ConsoleMarkupTests(unittest.TestCase):
     """What the console asserts before it has heard from the robot.
 
@@ -660,6 +1087,7 @@ class ConsoleMarkupTests(unittest.TestCase):
     def setUp(self) -> None:
         self.markup = (WEB_ROOT / "index.html").read_text()
         self.script = (WEB_ROOT / "app.js").read_text()
+        self.styles = (WEB_ROOT / "styles.css").read_text()
 
     def test_the_shipped_latch_readout_does_not_claim_released(self) -> None:
         latch = self.markup.split('id="latch-value"')[1].split("</dd>")[0]
@@ -684,10 +1112,265 @@ class ConsoleMarkupTests(unittest.TestCase):
 
         self.assertIn("estopReset.hidden = true", unknown_branch)
 
+    def test_the_page_sends_json_wherever_the_server_requires_it(self) -> None:
+        # The server refuses anything else as cross-site, so a call the page
+        # makes without it is a reset or cancel button that silently 403s.
+        for path in ("/api/goals/cancel", "/api/emergency_stop/reset"):
+            with self.subTest(path=path):
+                call = self.script.split(f'request("{path}"')[1].split("})")[0]
+                self.assertIn('"Content-Type": "application/json"', call)
+
+    def test_the_maps_places_are_not_hidden_inside_an_image(self) -> None:
+        # role="img" makes everything inside it presentational, so a screen
+        # reader never found the "Go to" buttons drawn on the map.
+        floor_map = self.markup.split('<svg id="floor-map"')[1].split(">")[0]
+
+        self.assertNotIn('role="img"', floor_map)
+
+    def test_a_redraw_gives_the_focused_place_its_focus_back(self) -> None:
+        render = self.script.split("function renderMap")[1].split("\n}\n")[0]
+
+        self.assertIn("focusedName", render.split("replaceChildren")[0])
+        self.assertIn("group.focus()", render)
+
+    def test_a_press_on_a_place_is_not_a_new_label(self) -> None:
+        press = self.script.split('addEventListener("pointerdown"')[1].split("});")[0]
+
+        self.assertIn('closest(".map-location")) return', press)
+
+    def test_a_failed_map_read_stops_drawing_the_robot(self) -> None:
+        poll = self.script.split("setInterval(() => {\n  loadMap()")[1].split("MAP_POLL_MS")[0]
+
+        self.assertIn("robot: null", poll)
+
+    def test_text_and_fields_meet_the_contrast_minimums(self) -> None:
+        # WCAG AA: 4.5:1 for text, 3:1 for the edge that shows a field is one.
+        colours = dict(re.findall(r"--([a-z-]+): (#[0-9a-f]{6});", self.styles))
+
+        for background in ("panel", "paper", "teal-soft"):
+            with self.subTest(background=background):
+                ratio = contrast(colours["muted"], colours[background])
+                self.assertGreaterEqual(ratio, 4.5)
+        self.assertGreaterEqual(contrast(colours["field"], colours["panel"]), 3.0)
+        self.assertEqual(self.styles.count("border: 1px solid var(--field)"), 3)
+
     def test_a_missing_latch_field_is_treated_as_unknown(self) -> None:
         # Not as released: a status payload without the field tells the
         # console nothing, and "nothing" must not render as safe.
         self.assertIn('typeof safety.emergency_stop === "boolean"', self.script)
+
+
+class SynchronousThread:
+    """Runs its target on start(), so what it did is settled by the next line."""
+
+    def __init__(self, target, **_kwargs) -> None:
+        self.target = target
+
+    def start(self) -> None:
+        self.target()
+
+
+class MainTests(unittest.TestCase):
+    def test_main_serves_both_pages_from_one_backend(self) -> None:
+        # One RobotWebApp means one latch: a stop pressed on the tablet is
+        # the stop the console shows, not a second, private one.
+        console, resident = Mock(), Mock()
+        console.serve_forever.side_effect = KeyboardInterrupt
+        with (
+            patch("web_ui.app.ThreadingHTTPServer", side_effect=[console, resident]) as server,
+            patch("web_ui.app.make_handler") as console_handler,
+            patch("web_ui.app.make_resident_handler") as resident_handler,
+            patch("web_ui.app.Thread", SynchronousThread),
+            patch.dict("os.environ", {}, clear=False),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            # The defaults are under test, so neither override may leak in.
+            os.environ.pop("RESIDENT_HOST", None)
+            os.environ.pop("RESIDENT_PORT", None)
+            os.environ["ALLOWED_HOSTS"] = "Robot.Local, tablet.home"
+            app_module.main()
+
+        addresses = [call.args[0] for call in server.call_args_list]
+        self.assertEqual(addresses, [("127.0.0.1", 8080), ("127.0.0.1", 8081)])
+        self.assertIs(console_handler.call_args.args[0], resident_handler.call_args.args[0])
+        self.assertEqual(
+            console_handler.call_args.kwargs["allowed_hosts"], {"robot.local", "tablet.home"}
+        )
+        self.assertEqual(resident_handler.call_args.args[2], {"robot.local", "tablet.home"})
+        resident.serve_forever.assert_called_once()
+        resident.shutdown.assert_called_once()
+        resident.server_close.assert_called_once()
+        console.server_close.assert_called_once()
+
+
+@unittest.skipUnless(shutil.which("node"), "node is not installed")
+class ResidentScriptTests(unittest.TestCase):
+    """resident.js driven in Node against a fake robot and a fake clock.
+
+    The harness parses the real resident.html into a small fake DOM, so these
+    exercise the shipped page: the STOP that has to be confirmed, the races a
+    slow robot opens up, and what the resident is told at each step.
+    """
+
+    def test_the_page_behaves(self) -> None:
+        harness = Path(__file__).resolve().parent / "resident_harness.js"
+        run = subprocess.run(
+            ["node", str(harness)], capture_output=True, text=True, timeout=120
+        )
+        self.assertEqual(run.returncode, 0, run.stderr)
+        results = json.loads(run.stdout)
+
+        self.assertGreater(len(results), 15)
+        for scenario, failure in results.items():
+            with self.subTest(scenario=scenario):
+                self.assertIsNone(failure, failure)
+
+
+class ResidentMarkupTests(unittest.TestCase):
+    """What the resident's page says, and what it is able to ask for.
+
+    The server refuses everything the page is not meant to do; these keep the
+    page itself from offering it, and from telling a resident "Ready" when it
+    has not heard from the robot.
+    """
+
+    def setUp(self) -> None:
+        self.markup = (WEB_ROOT / "resident.html").read_text()
+        self.script = (WEB_ROOT / "resident.js").read_text()
+        self.styles = (WEB_ROOT / "resident.css").read_text()
+
+    def test_there_is_no_reset_anywhere_on_the_page(self) -> None:
+        # The one place the word may appear is the sentence sending the
+        # resident to someone who can.
+        script = self.script.replace("Please ask your carer to reset the robot.", "")
+        for name, text in (("html", self.markup), ("js", script)):
+            with self.subTest(file=name):
+                self.assertNotIn("reset", text.lower())
+
+    def test_the_page_asks_only_for_what_the_server_allows(self) -> None:
+        called = set(re.findall(r'"(/api/[a-z_/]*)"', self.script))
+
+        self.assertEqual(
+            called,
+            {"/api/locations", "/api/status", "/api/goals",
+             "/api/goals/cancel", "/api/emergency_stop"},
+        )
+
+    def test_the_page_does_not_say_ready_before_a_status_read(self) -> None:
+        status = self.markup.split('id="status"')[1].split("</")[0]
+
+        self.assertNotIn("Ready", status)
+        self.assertNotIn("Ready", self.markup)
+
+    def test_the_status_is_announced(self) -> None:
+        before, after = self.markup.split('id="status"')
+        tag = before.rsplit("<", 1)[1] + after.split(">")[0]
+
+        self.assertIn('aria-live="polite"', tag)
+
+    def test_the_stop_button_is_always_shown(self) -> None:
+        stop = self.markup.split('id="stop-button"')[1].split(">")[0]
+        before = self.markup.split('id="stop-button"')[0].rsplit("<", 1)[1]
+
+        self.assertNotIn("hidden", stop + before)
+        self.assertNotIn("stopButton.hidden", self.script)
+
+    def test_cancel_starts_hidden(self) -> None:
+        cancel = self.markup.split('id="cancel-button"')[1].split(">")[0]
+
+        self.assertIn("hidden", cancel)
+
+    def test_a_silent_robot_is_noticed(self) -> None:
+        unreachable = self.script.split("function showUnreachable")[1].split("\n}\n")[0]
+
+        self.assertIn("say(SAY.unreachable, true)", unreachable)
+        self.assertIn('unreachable: "Can\'t reach the robot. Please ask your carer."', self.script)
+        self.assertIn("setInterval(checkStatusFreshness", self.script)
+
+    def test_every_request_gives_up_eventually(self) -> None:
+        request = self.script.split("async function request")[1].split("\n}\n")[0]
+
+        self.assertIn("new AbortController()", request)
+        self.assertIn("signal", request)
+
+    def test_urgent_messages_have_their_own_alert_regions(self) -> None:
+        for element in ("alert", "stop-alert"):
+            with self.subTest(element=element):
+                before, after = self.markup.split(f'id="{element}"')
+                tag = before.rsplit("<", 1)[1] + after.split(">")[0]
+                self.assertIn('role="alert"', tag)
+
+    def test_stop_comes_before_the_rooms_for_keyboard_and_screen_reader(self) -> None:
+        self.assertLess(self.markup.index('id="stop-button"'), self.markup.index('id="rooms"'))
+        self.assertIn('<section class="stop-panel" aria-label="Stop the robot">', self.markup)
+
+    def test_the_question_is_a_labelled_group(self) -> None:
+        confirm = self.markup.split('id="confirm"')[1].split(">")[0]
+
+        self.assertIn('role="group"', confirm)
+        self.assertIn('aria-labelledby="confirm-question"', confirm)
+
+    def test_focus_has_somewhere_to_land_when_the_question_closes(self) -> None:
+        question = self.markup.split('id="question"')[1].split(">")[0]
+
+        self.assertIn('tabindex="-1"', question)
+
+    def test_the_focus_ring_is_two_tone(self) -> None:
+        # Amber alone on white is about 1.6:1; a dark ring inside it shows on
+        # any background, the amber halo outside it shows on the dark ones.
+        focus = self.styles.split("button:focus-visible")[1].split("}")[0]
+
+        self.assertIn("outline: 4px solid var(--focus-dark)", focus)
+        self.assertIn("var(--focus)", focus.split("box-shadow")[1])
+
+    def test_a_short_screen_keeps_the_stop_note_for_screen_readers(self) -> None:
+        short = self.styles.split("@media (max-height: 520px)")[1]
+        note = short.split(".stop-note")[1].split("}")[0]
+
+        self.assertNotIn("display: none", note)
+        self.assertIn("clip", note)
+
+    def test_text_scales_with_the_browser_setting(self) -> None:
+        self.assertIn("font-size: 150%", self.styles.split(":root")[1].split("}")[0])
+
+    def test_a_missing_latch_field_is_treated_as_unknown(self) -> None:
+        self.assertIn('typeof safety.emergency_stop !== "boolean"', self.script)
+
+    def test_the_stopped_message_sends_the_resident_to_a_carer(self) -> None:
+        self.assertIn("Please ask your carer to reset the robot.", self.script)
+
+    def test_the_page_sends_json_wherever_the_server_requires_it(self) -> None:
+        for path in ("/api/goals", "/api/goals/cancel"):
+            with self.subTest(path=path):
+                call = self.script.split(f'request("{path}"')[1].split("})")[0]
+                self.assertIn('"Content-Type": "application/json"', call)
+
+    def test_no_coordinates_are_shown(self) -> None:
+        self.assertNotRegex(self.script, r"\.(x|y|yaw)\b")
+
+    def test_touch_targets_are_at_least_64_pixels(self) -> None:
+        # In rem, so they grow with the text; 1rem is 24px at the 150% root.
+        sizes = [float(value) for value in re.findall(r"min-height: ([\d.]+)rem", self.styles)]
+
+        self.assertTrue(sizes)
+        self.assertGreaterEqual(min(sizes) * 24, 64)
+        self.assertNotRegex(self.styles, r"min-height: \d+px")
+
+    def test_text_meets_the_enhanced_contrast_minimum(self) -> None:
+        # WCAG AAA, 7:1: this page is read by people whose eyesight is the
+        # reason they have a robot fetching things.
+        colours = dict(re.findall(r"--([a-z-]+): (#[0-9a-f]{6});", self.styles))
+        pairs = [
+            ("ink", "paper"), ("on-action", "action"), ("on-stop", "stop"),
+            ("focus-dark", "paper"),
+        ]
+
+        for foreground, background in pairs:
+            with self.subTest(pair=(foreground, background)):
+                ratio = contrast(colours[foreground], colours[background])
+                self.assertGreaterEqual(ratio, 7.0)
+        # The two halves of the focus ring have to be told apart (3:1).
+        self.assertGreaterEqual(contrast(colours["focus"], colours["focus-dark"]), 3.0)
 
 
 if __name__ == "__main__":

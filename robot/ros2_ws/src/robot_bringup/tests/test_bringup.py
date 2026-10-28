@@ -225,6 +225,13 @@ class SafetyDistanceDerivationTests(unittest.TestCase):
         self.assertTrue(navigation["require_localization"])
         self.assertGreater(navigation["max_localization_covariance"], 0.0)
 
+    def test_every_gate_caps_speed_at_the_speed_its_distances_assume(
+        self,
+    ) -> None:
+        for name, params in self.parameter_files.items():
+            with self.subTest(name):
+                self.assertEqual(params["max_speed"], self.dynamics.max_speed)
+
     def test_control_rate_matches_the_control_period_it_was_derived_from(
         self,
     ) -> None:
@@ -235,6 +242,25 @@ class SafetyDistanceDerivationTests(unittest.TestCase):
             1.0 / self.dynamics.control_period,
             places=6,
         )
+
+    # DEFECT: the derivation charges the robot one sensor_period (0.1 s) of
+    # blind travel, but the gate keeps acting on a scan for up to
+    # sensor_timeout (0.5 s). A lidar that stalls for 0.4 s leaves the robot
+    # driving at full speed on a reading the stop distance does not cover.
+    @unittest.expectedFailure
+    def test_the_stop_distance_covers_the_oldest_scan_the_gate_accepts(
+        self,
+    ) -> None:
+        from dataclasses import replace
+
+        from robot_safety import derive_safety_distances
+
+        for name, params in self.parameter_files.items():
+            with self.subTest(config=name):
+                oldest = derive_safety_distances(
+                    replace(self.dynamics, sensor_period=params["sensor_timeout"])
+                )
+                self.assertGreaterEqual(params["stop_distance"], oldest.stop_distance)
 
     def test_caution_speed_scale_matches_what_the_gate_applies(self) -> None:
         from robot_safety import SafetyController
@@ -334,7 +360,23 @@ class LaunchFileTests(unittest.TestCase):
 
     def test_teleop_publishes_requests_not_gated_motion(self) -> None:
         # Teleop must go through the gate like every other motion source.
-        self.assertIn('("/cmd_vel", "/cmd_vel_requested")', self.teleop)
+        self.assertIn('("key_vel", "cmd_vel_requested")', self.teleop)
+
+    def test_keyboard_speeds_stay_within_what_the_gate_assumes(self) -> None:
+        # The gate does not cap speed yet (see robot_safety's expected
+        # failure), so the keyboard must not ask for more than max_speed.
+        keys = yaml.safe_load((CONFIG / "key_teleop.yaml").read_text())
+        keys = keys["key_teleop"]["ros__parameters"]
+        dynamics = yaml.safe_load((CONFIG / "base_dynamics.yaml").read_text())
+        gate = yaml.safe_load((CONFIG / "safety.yaml").read_text())
+        gate = gate["safety_controller"]["ros__parameters"]
+
+        self.assertLessEqual(keys["forward_rate"], dynamics["max_speed"])
+        self.assertLessEqual(keys["backward_rate"], dynamics["max_speed"])
+        self.assertIs(keys["twist_stamped_enabled"], False)
+        # A held key must reach the gate at least as often as it checks, so it
+        # is never mistaken for a lost command stream.
+        self.assertGreaterEqual(keys["hz"], gate["control_rate_hz"])
 
     def test_slam_clock_can_be_set_for_real_sensor_timestamps(self) -> None:
         slam = (LAUNCH / "slam.launch.py").read_text()
@@ -714,8 +756,88 @@ class NavigationTopologyTests(unittest.TestCase):
 
                 self.assertIn("remappings=gated", node_block)
 
-    def test_the_remap_points_at_the_request_topic(self) -> None:
-        self.assertIn('gated = [("/cmd_vel", "/cmd_vel_requested")]', self.navigation)
+    def test_the_remap_points_away_from_the_wheels(self) -> None:
+        # Nav2's velocities go to the Collision Monitor's input, and the
+        # monitor forwards what survives to the gate's. This assertion is the
+        # weak one of the pair on purpose: it reads the source line as text,
+        # so it catches the line being deleted or reworded, and it is
+        # test_cmd_vel_topology.py that follows the list to the topic it names
+        # and on through the monitor to the gate.
+        #
+        # What matters at both hops is the same thing: the destination is not
+        # the wheels. Only the gate publishes there.
+        self.assertIn('gated = [("/cmd_vel", "/cmd_vel_raw")]', self.navigation)
+
+    def test_navigation_starts_the_monitor_its_remap_depends_on(self) -> None:
+        # The remap above is only safe because something is listening on
+        # cmd_vel_raw and forwarding to cmd_vel_requested. Including the
+        # monitor's own launch file is what puts it there.
+        #
+        # Read from the include ACTION, not from the text. Both the file name
+        # and the word IncludeLaunchDescription survive in an import line and
+        # a leftover variable after the include itself is deleted, so a
+        # substring check passes on a navigation stack that starts no monitor
+        # at all - which is how this test read when it was first written.
+        # Two things this has to get right, both of which an earlier draft of
+        # it got wrong:
+        #
+        # Only the include's SOURCE argument is read, not the whole call. An
+        # include also carries launch_arguments - simulation.launch.py passes
+        # a list of strings through them - and a launch_argument ending in
+        # .launch.py would otherwise count as an include of a file nothing
+        # starts.
+        #
+        # A name assigned more than once is refused rather than resolved. The
+        # live value is the last assignment, so collecting strings from all of
+        # them means a stale first assignment to the right file keeps this
+        # passing after the real one has been pointed somewhere else. That is
+        # the same "passes for the wrong reason" shape as the substring check
+        # this replaced, one level deeper.
+        import ast as _ast
+
+        tree = _ast.parse(self.navigation)
+
+        assigned: dict[str, list[_ast.expr]] = {}
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, _ast.Name):
+                        assigned.setdefault(target.id, []).append(node.value)
+
+        def launch_files_in(expression: _ast.expr, seen: frozenset[str]) -> set[str]:
+            found: set[str] = set()
+            for node in _ast.walk(expression):
+                if (
+                    isinstance(node, _ast.Constant)
+                    and isinstance(node.value, str)
+                    and node.value.endswith(".launch.py")
+                ):
+                    found.add(node.value.rsplit("/", 1)[-1])
+                elif isinstance(node, _ast.Name) and node.id not in seen:
+                    settings = assigned.get(node.id, [])
+                    self.assertLessEqual(
+                        len(settings),
+                        1,
+                        f"{node.id} is assigned {len(settings)} times, so what "
+                        "it holds cannot be read off this file",
+                    )
+                    for value in settings:
+                        found |= launch_files_in(value, seen | {node.id})
+            return found
+
+        included: set[str] = set()
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            if getattr(node.func, "id", None) != "IncludeLaunchDescription":
+                continue
+            source = node.args[0] if node.args else None
+            self.assertIsNotNone(
+                source, "an IncludeLaunchDescription with no source argument"
+            )
+            included |= launch_files_in(source, frozenset())
+
+        self.assertIn("collision_monitor.launch.py", included)
 
     def test_navigation_runs_the_gate_with_the_localization_checks(self) -> None:
         # safety.yaml has require_localization false, because teleop has no

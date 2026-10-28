@@ -231,13 +231,21 @@ def check_motion_only_when_permitted(
     caught, and a real path around the gate publishes continuously.
     """
     check = "Nothing moved while the safety gate said stop"
-    velocities = _on(records, CMD_VEL)
+    # Only commands this analyser can read. One it cannot - a TwistStamped, say
+    # - says nothing about the wheels, and counting it as a stopped moment
+    # would report "every one of them was zero" about speeds nobody looked at.
+    velocities = [
+        record
+        for record in _on(records, CMD_VEL)
+        if isinstance(record.message, Velocity)
+    ]
     statuses = _on(records, SAFETY_STATE)
     if not velocities or not statuses:
         return Finding(
             check,
             Outcome.NOT_EXERCISED,
-            "The recording has no velocity commands, no safety states, or neither.",
+            "The recording has no velocity commands this analyser can read, "
+            "no safety states, or neither.",
             "Nothing was recorded that could answer this. The run proves nothing "
             "either way.",
         )
@@ -258,7 +266,7 @@ def check_motion_only_when_permitted(
             continue
         stopped_moments += 1
         velocity = record.message
-        if not isinstance(velocity, Velocity) or velocity.is_zero():
+        if velocity.is_zero():
             continue
         if any(abs(record.timestamp - when) <= settle for when in boundaries):
             excused += 1

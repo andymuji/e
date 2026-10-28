@@ -36,21 +36,23 @@ jobs:
 
   ros-build:
     runs-on: ubuntu-latest
+    # Plain colcon rather than action-ros-ci, which always builds with
+    # --symlink-install; in CI that left sibling packages (robot_core,
+    # robot_safety) unimportable from each other's tests.
+    env:
+      PYTHONPATH: ""
     steps:
+      - uses: actions/checkout@v4
       - uses: ros-tooling/setup-ros@v0.7
         with:
           required-ros-distributions: jazzy
-      - uses: ros-tooling/action-ros-ci@v0.4
-        with:
-          package-name: >-
-            robot_bringup
-            robot_console
-            robot_core
-            robot_description
-            robot_locations
-            robot_navigation
-            robot_safety
-            robot_telemetry
-            robot_voice
-          target-ros2-distro: jazzy
-          import-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and test
+        working-directory: robot/ros2_ws
+        shell: bash
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          rosdep update
+          rosdep install --from-paths src --ignore-src -r -y
+          colcon build
+          colcon test --event-handlers console_direct+
+          colcon test-result --verbose

@@ -21,11 +21,21 @@ from nav2_msgs.action import NavigateToPose
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from robot_core import NavigationGoal, Pose2D
 from robot_locations import LocationStore
 from std_msgs.msg import Bool, String
 
 from robot_voice.command_gateway import CommandGateway
+
+# Matches robot_safety.safety_node.STATE_QOS: the gate keeps its last state for
+# late joiners, so a voice node started after the latch went down still hears
+# that it is down.
+STATE_QOS = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+
+# robot_safety.SafetyController's reason when the latch is down, and the only
+# reason that means it: every other stop is momentary.
+EMERGENCY_STOP_REASON = "emergency stop active"
 
 
 def _optional(value: str) -> str | None:
@@ -82,6 +92,12 @@ class VoiceNode(Node):
         # A stop can arrive while Nav2 is still accepting a goal, so this
         # flag, not the handle, decides whether the trip survives.
         self._trip_wanted = False
+        # The newest trip's answer from Nav2. An older one arriving late is a
+        # trip somebody has since stopped or replaced, never the current one.
+        self._trip_future = None
+        # What the gate last said about its latch. False until it says
+        # anything, as before: this node has never required the gate.
+        self._latched = False
 
         self._response_publisher = self.create_publisher(String, "voice_response", 10)
         self._emergency_stop_publisher = self.create_publisher(
@@ -92,6 +108,9 @@ class VoiceNode(Node):
         self.create_subscription(String, "speech_transcript", self._on_transcript, 10)
         self.create_subscription(
             PoseWithCovarianceStamped, "amcl_pose", self._on_position, 10
+        )
+        self.create_subscription(
+            String, "safety_state", self._on_safety_state, STATE_QOS
         )
 
     def _on_transcript(self, message: String) -> None:
@@ -120,6 +139,11 @@ class VoiceNode(Node):
             self.get_logger().error("approved destination arrived without a goal")
             return "I cannot go there."
 
+        if self._latched:
+            # Nav2 would accept it, and the trip would wait behind the latch
+            # to drive off the moment an operator reset the stop.
+            return "I cannot move: the emergency stop is engaged."
+
         if not self._navigator.server_is_ready():
             # Never block the callback waiting for Nav2. A goal sent to an
             # absent server is dropped silently, which sounds like success.
@@ -128,20 +152,24 @@ class VoiceNode(Node):
 
         self._trip_wanted = True
         future = self._navigator.send_goal_async(self._navigate_to_pose(goal))
+        self._trip_future = future
         future.add_done_callback(self._on_goal_response)
         return response
 
     def _on_goal_response(self, future) -> None:
         goal_handle = future.result()
+        current = future is self._trip_future
 
         if not goal_handle.accepted:
-            self._trip_wanted = False
+            if current:
+                self._trip_wanted = False
             self.get_logger().warning("navigation refused the goal")
             self._respond("Navigation would not take that trip.")
             return
 
-        if not self._trip_wanted:
-            # A stop arrived while the goal was still being accepted.
+        if not (current and self._trip_wanted):
+            # A stop, or a newer trip, arrived while this goal was still
+            # being accepted. Adopting it would revive a trip already let go.
             goal_handle.cancel_goal_async()
             return
 
@@ -174,6 +202,18 @@ class VoiceNode(Node):
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()
             self._goal_handle = None
+
+    def _on_safety_state(self, message: String) -> None:
+        """Follow the gate's latch, whoever engaged it.
+
+        A trip still running when the latch goes down - pressed on the
+        console, say - is dropped rather than left behind the latch to resume
+        when it is reset. Nothing here can release it.
+        """
+        reason = message.data.partition(":")[2].strip()
+        self._latched = reason == EMERGENCY_STOP_REASON
+        if self._latched:
+            self._abandon_trip()
 
     def _refresh_locations(self) -> None:
         """Pick up destinations the operator approved after start-up.

@@ -283,6 +283,10 @@ function updateMapTransform() {
 // them may be invented, because an operator reads this picture as where the
 // robot is.
 function renderMap() {
+  // Redrawn every poll, so the focused place would vanish from under a
+  // keyboard user every two seconds. Its name brings the focus back.
+  const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest(".map-location");
+  const focusedName = focused ? focused.getAttribute("data-name") : null;
   floorMap.replaceChildren();
   const background = svgElement("rect", { x: 0, y: 0, width: 600, height: 500, class: "map-background" });
   floorMap.append(background);
@@ -313,7 +317,7 @@ function renderMap() {
   mapNotice.hidden = !mapNotice.textContent;
   (mapData.locations || []).forEach((location) => {
     const point = toScreen(location);
-    const group = svgElement("g", { class: "map-location", tabindex: 0, role: "button", "aria-label": `Go to ${location.name}` });
+    const group = svgElement("g", { class: "map-location", tabindex: 0, role: "button", "aria-label": `Go to ${location.name}`, "data-name": location.name });
     group.append(svgElement("circle", { cx: point.x, cy: point.y, r: 12 }));
     const label = svgElement("text", { x: point.x + 17, y: point.y + 5 });
     label.textContent = location.name;
@@ -321,6 +325,7 @@ function renderMap() {
     group.addEventListener("click", (event) => { event.stopPropagation(); chooseLocation(location.name, group); });
     group.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseLocation(location.name, group); } });
     floorMap.append(group);
+    if (location.name === focusedName) group.focus();
   });
   updateMapTransform();
 }
@@ -339,6 +344,9 @@ function showLabelForm(point) {
 }
 
 floorMap.addEventListener("pointerdown", (event) => {
+  // A press on a saved place is a trip, not a new label: tracking it here
+  // captured the pointer and opened the label form on the place's release.
+  if (event.target.closest(".map-location")) return;
   floorMap.setPointerCapture(event.pointerId);
   pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, startX: event.clientX, startY: event.clientY });
   if (pointers.size === 2) {
@@ -386,7 +394,7 @@ labelForm.addEventListener("submit", async (event) => {
 
 cancelButton.addEventListener("click", async () => {
   cancelButton.disabled = true;
-  try { await request("/api/goals/cancel", { method: "POST" }); await refreshStatus(); }
+  try { await request("/api/goals/cancel", { method: "POST", headers: { "Content-Type": "application/json" } }); await refreshStatus(); }
   catch (error) { showError(error); }
   finally { cancelButton.disabled = false; }
 });
@@ -440,7 +448,7 @@ estopButton.addEventListener("click", async () => {
 estopReset.addEventListener("click", async () => {
   if (!window.confirm("Release the emergency stop? Check the robot is clear first.")) return;
   estopReset.disabled = true;
-  try { renderStatus(await request("/api/emergency_stop/reset", { method: "POST" })); }
+  try { renderStatus(await request("/api/emergency_stop/reset", { method: "POST", headers: { "Content-Type": "application/json" } })); }
   catch (error) { showError(error); await refreshStatus(); }
   finally { estopReset.disabled = false; }
 });
@@ -478,7 +486,12 @@ setInterval(refreshStatus, STATUS_POLL_MS);
 // open. checkStatusFreshness was written for that and was never scheduled.
 setInterval(checkStatusFreshness, STATUS_POLL_MS);
 // The robot moves, so the pose on the map goes stale between reads. A failed
-// map read keeps the last picture rather than blanking it; the marker is
-// drawn only when the server actually sent a pose.
-setInterval(() => { loadMap().catch(() => {}); }, MAP_POLL_MS);
-setInterval(checkStatusFreshness, STATUS_POLL_MS);
+// map read keeps the last picture rather than blanking it, but not the robot
+// on it: an old pose drawn as current is where someone would go looking.
+setInterval(() => {
+  loadMap().catch(() => {
+    if (!mapData) return;
+    mapData = { ...mapData, robot: null, available: false, message: "The map stopped updating: the robot's position is unknown." };
+    renderMap();
+  });
+}, MAP_POLL_MS);

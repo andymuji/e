@@ -1,0 +1,69 @@
+{
+  "configById": {
+    "3D!robotmapping": {
+      "followTf": "map",
+      "followMode": "follow-none",
+      "cameraState": {
+        "perspective": false,
+        "distance": 14,
+        "phi": 0,
+        "thetaOffset": 0,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "scene": {
+        "enableStats": false,
+        "backgroundColor": "#e9ecef",
+        "labelScaleFactor": 0,
+        "transforms": {
+          "showLabel": false,
+          "editable": false,
+          "axisSize": 0.6,
+          "lineWidth": 1
+        }
+      },
+      "transforms": {
+        "frame:map": { "visible": false },
+        "frame:odom": { "visible": false },
+        "frame:base_footprint": { "visible": false },
+        "frame:base_link": { "visible": true },
+        "frame:lidar_link": { "visible": false },
+        "frame:imu_link": { "visible": false },
+        "frame:caster_link": { "visible": false },
+        "frame:left_wheel_link": { "visible": false },
+        "frame:right_wheel_link": { "visible": false }
+      },
+      "topics": {
+        "/map": {
+          "visible": true,
+          "colorMode": "custom",
+          "minColor": "#ffffffff",
+          "maxColor": "#111111ff",
+          "unknownColor": "#00000000",
+          "invalidColor": "#00000000",
+          "frameLocked": false
+        },
+        "/scan": {
+          "visible": true,
+          "pointSize": 7,
+          "pointShape": "circle",
+          "decayTime": 0,
+          "colorMode": "flat",
+          "flatColor": "#e8202aff"
+        },
+        "/robot_description": { "visible": true },
+        "/trajectory_node_list": { "visible": true }
+      },
+      "layers": {},
+      "imageMode": {}
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": { "speed": 1 },
+  "layout": "3D!robotmapping"
+}

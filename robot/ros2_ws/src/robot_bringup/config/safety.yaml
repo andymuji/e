@@ -2,12 +2,12 @@
 #
 # stop_distance and caution_distance are DERIVED, not chosen. They come from
 # base_dynamics.yaml via robot_safety.distances.derive_safety_distances, and
-# BringupSafetyDistanceTests fails if they drift apart. To change them, change
+# SafetyDistanceDerivationTests fails if they drift apart. To change them, change
 # base_dynamics.yaml and update the two values below to match.
 #
 # They are still placeholders, because base_dynamics.yaml is still assumptions
 # (measured: false) matched to the placeholder URDF. Re-derive them from the
-# measured base and re-run docs/safety-test-procedure.md before any hardware
+# measured base and re-run docs/safety/safety-test-procedure.md before any hardware
 # test.
 safety_controller:
   ros__parameters:
@@ -22,6 +22,10 @@ safety_controller:
     # the difference between max_speed and caution speed before reaching
     # stop_distance.
     caution_distance: 0.85
+
+    # The gate caps travel speed here. Must match max_speed in
+    # base_dynamics.yaml - the distances above assume it.
+    max_speed: 0.5
 
     # A scan older than this is treated as no scan at all.
     sensor_timeout: 0.5

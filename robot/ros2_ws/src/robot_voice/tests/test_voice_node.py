@@ -7,6 +7,7 @@ try:
     from geometry_msgs.msg import PoseWithCovarianceStamped
     import rclpy
     from rclpy.parameter import Parameter
+    from rclpy.qos import DurabilityPolicy
     from robot_core import Pose2D
     from robot_locations import LocationStore
     from robot_voice.voice_node import VoiceNode
@@ -224,12 +225,72 @@ class VoiceNodeTests(unittest.TestCase):
         self.assertTrue(self.navigator.goal_handle().cancelled)
         self.assertIsNone(self.node._goal_handle)
 
+    def test_a_stopped_trip_accepted_late_is_not_revived_by_the_next(self) -> None:
+        # The kitchen trip is halted and a new one asked for, all before Nav2
+        # has accepted the kitchen goal. Its late acceptance belongs to a trip
+        # nobody wants any more, and must not become the one being driven.
+        self.speak("go to the kitchen")
+        self.speak("sto")
+        self.speak("go to the living room")
+
+        self.navigator.futures[0].answer()
+
+        self.assertTrue(self.navigator.goal_handle(0).cancelled)
+        self.assertIsNone(self.node._goal_handle)
+
+        self.navigator.futures[1].answer()
+
+        self.assertFalse(self.navigator.goal_handle(1).cancelled)
+        self.assertIs(self.node._goal_handle, self.navigator.goal_handle(1))
+
     def test_the_latch_can_be_left_to_the_operator_console(self) -> None:
         node = self.build_node(stop_engages_emergency_stop=False)
 
         self.speak("stop", node)
 
         self.assertEqual(node._emergency_stop_publisher.messages, [])
+
+    def gate_says(self, text: str) -> None:
+        self.node._on_safety_state(String(data=text))
+
+    def test_the_gates_kept_state_is_heard_by_a_late_starter(self) -> None:
+        [subscription] = [
+            sub for sub in self.node.subscriptions if sub.topic_name == "/safety_state"
+        ]
+
+        self.assertEqual(
+            subscription.qos_profile.durability, DurabilityPolicy.TRANSIENT_LOCAL
+        )
+
+    def test_no_goal_is_sent_while_the_gate_reports_the_latch(self) -> None:
+        # Nav2 would take it, and the trip would drive off the moment an
+        # operator reset the stop.
+        self.gate_says("stop: emergency stop active")
+
+        self.speak("go to the kitchen")
+
+        self.assertEqual(self.navigator.sent, [])
+        self.assertIn("emergency stop is engaged", self.last_response())
+
+        self.gate_says("clear: path clear")
+        self.speak("go to the kitchen")
+
+        self.assertEqual(len(self.navigator.sent), 1)
+
+    def test_a_latch_engaged_elsewhere_ends_the_trip(self) -> None:
+        self.speak("go to the kitchen")
+        self.navigator.futures[0].answer()
+
+        # An obstacle stop is momentary: the trip carries on after it.
+        self.gate_says("stop: obstacle inside stop distance")
+        self.assertFalse(self.navigator.goal_handle().cancelled)
+
+        self.gate_says("stop: emergency stop active")
+
+        self.assertTrue(self.navigator.goal_handle().cancelled)
+        self.assertIsNone(self.node._goal_handle)
+        # Following the latch is listening, not stopping: nothing published.
+        self.assertEqual(self.emergency_stops(), [])
 
     def test_no_goal_is_sent_while_navigation_is_not_running(self) -> None:
         self.navigator.ready = False

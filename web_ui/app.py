@@ -2,11 +2,12 @@
 
 from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import ipaddress
 import json
 import math
 import os
 from pathlib import Path
-from threading import Lock, RLock
+from threading import Lock, RLock, Thread
 import traceback
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -395,10 +396,26 @@ class RobotWebApp:
         showing as active would misreport what the robot is doing.
         """
         self.safety.engage_emergency_stop()
-        status = self.dispatcher.status()
-        if status.state == "navigating" and status.goal_id is not None:
-            self.dispatcher.cancel_goal(status.goal_id)
+        self.abandon_trip()
         return self.status()
+
+    def abandon_trip(self) -> None:
+        """Cancel the trip in progress, if there is one.
+
+        Under the store lock, which send_goal holds from its latch check to
+        its dispatch, so a goal racing a stop is either refused or already
+        sent and cancelled here - never left waiting behind the latch to
+        drive off when it is reset. A trip that ended on its own between the
+        status read and the cancel is what a stop wants, not a failure.
+        """
+        with self._store_lock:
+            status = self.dispatcher.status()
+            if status.state != "navigating" or status.goal_id is None:
+                return
+            try:
+                self.dispatcher.cancel_goal(status.goal_id)
+            except ValueError:
+                pass
 
     def reset_emergency_stop(self) -> dict[str, Any]:
         """Release the latch. Deliberate, and never triggered by polling."""
@@ -432,10 +449,10 @@ class RobotWebApp:
 
     def send_goal(self, location_name: str) -> dict[str, Any]:
         location_name = _text_field(location_name, "location_name")
-        # Checked before the lookup, so an engaged stop is reported as the
-        # reason for refusing rather than being masked by a bad name.
-        self._refuse_motion()
         with self._store_lock:
+            # Checked before the lookup, so an engaged stop is reported as the
+            # reason for refusing rather than being masked by a bad name.
+            self._refuse_motion()
             goal = self.location_store.get_goal(location_name)
             goal_id = self.dispatcher.send_goal(goal)
         return {"goal_id": goal_id, "location_name": goal.location_name}
@@ -486,8 +503,7 @@ class RobotWebApp:
             # A halt is a stop the recogniser mangled - "sto", "hal". It drops
             # the trip exactly as a stop does; what it does not do is ask for
             # the latch, which is the gateway's decision, not this console's.
-            if status.state == "navigating" and status.goal_id is not None:
-                self.dispatcher.cancel_goal(status.goal_id)
+            self.abandon_trip()
         elif outcome.action == "go_to":
             refusal = self._motion_refusal()
             if refusal is not None:
@@ -521,26 +537,134 @@ class _Reply:
     content_type: str = "application/json"
 
 
-def make_handler(app: RobotWebApp, web_root: Path):
+CONSOLE_FILES = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+}
+
+RESIDENT_FILES = {
+    "/": ("resident.html", "text/html; charset=utf-8"),
+    "/resident.html": ("resident.html", "text/html; charset=utf-8"),
+    "/resident.css": ("resident.css", "text/css; charset=utf-8"),
+    "/resident.js": ("resident.js", "text/javascript; charset=utf-8"),
+}
+
+# Everything the resident's page may ask of the robot: pick a room, cancel
+# the trip, engage the stop. No reset - a stop the resident can undo from the
+# same tablet is not one a carer can rely on - and nothing that changes what
+# the robot believes about its rooms or its sensors.
+RESIDENT_API = frozenset({
+    ("GET", "/api/locations"),
+    ("GET", "/api/status"),
+    ("POST", "/api/goals"),
+    ("POST", "/api/goals/cancel"),
+    ("POST", "/api/emergency_stop"),
+})
+
+
+# Calls that only ever end motion. They are answered whatever the headers
+# say - Host, Origin or content type - because refusing a real stop on a
+# header is the dangerous mistake and a forged one only stops the robot.
+FAIL_SAFE_POSTS = frozenset({"/api/emergency_stop", "/api/goals/cancel"})
+
+# Applied to every reply. The map image is a data: URL, hence img-src.
+SECURITY_HEADERS = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "no-referrer"),
+    (
+        "Content-Security-Policy",
+        "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
+    ),
+)
+
+
+def allowed_hosts_from(text: str | None) -> frozenset[str]:
+    """Parse a comma-separated ALLOWED_HOSTS value into lower-case names."""
+    return frozenset(
+        name.strip().lower() for name in (text or "").split(",") if name.strip()
+    )
+
+
+def _host_is_allowed(host: str | None, allowed_hosts: frozenset[str]) -> bool:
+    """Accept an IP literal, localhost, or a name someone chose to list.
+
+    Any other name is how DNS rebinding arrives: a page on evil.example
+    re-points its own name at this server, and its requests then carry a
+    matching Origin, so the cross-site check cannot see them.
+    """
+    if not host:
+        return False
+    try:
+        name = urlparse(f"//{host}").hostname
+    except ValueError:
+        return False
+    if not name:
+        return False
+    if name == "localhost" or name in allowed_hosts:
+        return True
+    try:
+        ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    return True
+
+
+def make_resident_handler(
+    app: RobotWebApp,
+    web_root: Path,
+    allowed_hosts: frozenset[str] | set[str] = frozenset(),
+):
+    """The resident page's server: the same backend behind a short allow-list."""
+    return make_handler(app, web_root, RESIDENT_FILES, RESIDENT_API, allowed_hosts)
+
+
+def make_handler(
+    app: RobotWebApp,
+    web_root: Path,
+    static_files: dict[str, tuple[str, str]] = CONSOLE_FILES,
+    api_allowed: frozenset[tuple[str, str]] | None = None,
+    allowed_hosts: frozenset[str] | set[str] = frozenset(),
+):
+    """Serve `static_files` and the API; with `api_allowed`, only those calls.
+
+    The allow-list is checked before any route runs, so a call left off it is
+    refused by the server rather than by a page that happens not to show it.
+    """
+    allowed_hosts = frozenset(name.lower() for name in allowed_hosts)
     # A body larger than this is not a request this console has any use for,
     # and reading an arbitrary Content-Length ties up a server thread.
     max_body_bytes = 64 * 1024
 
-    static_files = {
-        "/": ("index.html", "text/html; charset=utf-8"),
-        "/index.html": ("index.html", "text/html; charset=utf-8"),
-        "/styles.css": ("styles.css", "text/css; charset=utf-8"),
-        "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-    }
-
     class RobotRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            self._respond(self._route_get)
+            self._respond("GET", self._route_get)
 
         def do_POST(self) -> None:
-            self._respond(self._route_post)
+            self._respond("POST", self._route_post)
 
-        def _respond(self, route) -> None:
+        def _refuse_method(self) -> None:
+            self._send(_Reply(405, {"error": "method not allowed"}))
+
+        do_HEAD = do_PUT = do_DELETE = do_PATCH = do_OPTIONS = _refuse_method
+
+        def _respond(self, method: str, route) -> None:
+            path = urlparse(self.path).path
+            fail_safe = method == "POST" and path in FAIL_SAFE_POSTS
+            if not fail_safe and not _host_is_allowed(
+                self.headers.get("Host"), allowed_hosts
+            ):
+                self._send(_Reply(421, {"error": "unrecognised host name"}))
+                return
+            allowed = (method, path) in api_allowed if api_allowed is not None else True
+            if not allowed and not (method == "GET" and path in static_files):
+                self._send(_Reply(404, {"error": "not found"}))
+                return
+            self._answer(route, path)
+
+        def _answer(self, route, path: str) -> None:
             """Answer exactly once, whatever the route does.
 
             Every branch below ends in a response. An exception that escaped
@@ -549,7 +673,7 @@ def make_handler(app: RobotWebApp, web_root: Path):
             stop latch included - with nothing to say it is out of date.
             """
             try:
-                reply = route(urlparse(self.path).path)
+                reply = route(path)
             except BadRequest as error:
                 reply = _Reply(400, {"error": str(error)})
             except KeyError as error:
@@ -590,10 +714,17 @@ def make_handler(app: RobotWebApp, web_root: Path):
             return _Reply(404, {"error": "not found"})
 
         def _route_post(self, path: str) -> "_Reply":
-            if path == "/api/goals/cancel":
-                return _Reply(200, app.cancel_goal())
             if path == "/api/emergency_stop":
+                # Ahead of the cross-site check on purpose: engaging is the
+                # safe direction, and a stop must never fail on a header.
                 return _Reply(200, app.engage_emergency_stop())
+            if path == "/api/goals/cancel":
+                # Also ahead of it: cancelling only ever ends a trip, so a
+                # cross-site cancel is harmless and a refused one is not.
+                return _Reply(200, app.cancel_goal())
+            refusal = self._cross_site_refusal()
+            if refusal is not None:
+                return _Reply(403, {"error": refusal})
             if path == "/api/emergency_stop/reset":
                 return _Reply(200, app.reset_emergency_stop())
             if path == "/api/goals":
@@ -619,6 +750,21 @@ def make_handler(app: RobotWebApp, web_root: Path):
                 body = self._json_object()
                 return _Reply(200, app.remove_location(self._field(body, "name")))
             return _Reply(404, {"error": "not found"})
+
+        def _cross_site_refusal(self) -> str | None:
+            """Refuse a POST that another web page could have sent.
+
+            Any site open in the operator's browser can POST to this console
+            without being able to read the answer, and a form or a no-cors
+            fetch cannot carry a JSON content type. Without this, a page
+            elsewhere could release the latched stop or send the robot off.
+            """
+            origin = self.headers.get("Origin")
+            if origin is not None and urlparse(origin).netloc != self.headers.get("Host"):
+                return "refused a request sent from another site"
+            if self.headers.get_content_type() != "application/json":
+                return "requests must be sent as application/json"
+            return None
 
         @staticmethod
         def _field(body: dict[str, Any], name: str) -> Any:
@@ -663,9 +809,11 @@ def make_handler(app: RobotWebApp, web_root: Path):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(content)))
             self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
+            for name, value in SECURITY_HEADERS:
+                self.send_header(name, value)
             self.end_headers()
-            self.wfile.write(content)
+            if self.command != "HEAD":
+                self.wfile.write(content)
 
         def log_message(self, format: str, *args: Any) -> None:
             return
@@ -693,13 +841,33 @@ def main() -> None:
         SafetyScenarioAdapter(),
         chat_responder=chat_responder,
     )
-    server = ThreadingHTTPServer(("127.0.0.1", 8080), make_handler(app, root / "web"))
+    # Names other than an IP address or localhost, e.g. robot.local, must be
+    # listed to be served: see _host_is_allowed.
+    allowed_hosts = allowed_hosts_from(os.environ.get("ALLOWED_HOSTS"))
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 8080),
+        make_handler(app, root / "web", allowed_hosts=allowed_hosts),
+    )
+    # The resident's page, on its own port and over the same app, so both
+    # pages share one latch. Local by default like the console; a tablet on
+    # the home Wi-Fi needs RESIDENT_HOST=0.0.0.0, which is a deliberate step.
+    resident_host = os.environ.get("RESIDENT_HOST", "127.0.0.1")
+    resident_port = int(os.environ.get("RESIDENT_PORT", "8081"))
+    resident = ThreadingHTTPServer(
+        (resident_host, resident_port),
+        make_resident_handler(app, root / "web", allowed_hosts),
+    )
+    resident_thread = Thread(target=resident.serve_forever, daemon=True)
+    resident_thread.start()
     print("Robot destination app: http://127.0.0.1:8080")
+    print(f"Resident page: http://{resident_host}:{resident_port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        resident.shutdown()
+        resident.server_close()
         server.server_close()
 
 

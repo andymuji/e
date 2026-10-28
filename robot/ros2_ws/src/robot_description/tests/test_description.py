@@ -5,6 +5,7 @@ silently broken frame or a rewired velocity topic is a safety regression, not
 just a modelling mistake.
 """
 
+import ast
 from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
@@ -138,6 +139,31 @@ class RobotDescriptionTests(unittest.TestCase):
 
         self.assertEqual(lidar.find("topic").text, "scan")
         self.assertGreater(float(lidar.find("update_rate").text), 0.0)
+
+    def test_display_launch_views_from_a_frame_it_publishes(self) -> None:
+        # display.launch.py runs no simulator, so nothing publishes odom, the
+        # fixed frame robot.rviz shares with simulation.launch.py. Viewed from
+        # a frame that does not exist, RViz draws no robot at all.
+        source = (URDF_DIR.parent / "launch" / "display.launch.py").read_text()
+        rviz = next(
+            call
+            for call in ast.walk(ast.parse(source))
+            if isinstance(call, ast.Call)
+            and any(
+                keyword.arg == "package" and ast.literal_eval(keyword.value) == "rviz2"
+                for keyword in call.keywords
+            )
+        )
+        arguments = next(k.value for k in rviz.keywords if k.arg == "arguments")
+        literals = [
+            element.value
+            for element in arguments.elts
+            if isinstance(element, ast.Constant)
+        ]
+        fixed_frame = literals[literals.index("-f") + 1]
+
+        links = {link.get("name") for link in self.robot.iter("link")}
+        self.assertIn(fixed_frame, links)
 
     def test_lidar_sees_closer_than_the_safety_stop_distance(self) -> None:
         from robot_safety import SafetyController

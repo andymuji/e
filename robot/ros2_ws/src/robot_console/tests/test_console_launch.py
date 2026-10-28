@@ -93,6 +93,32 @@ class ConsoleLaunchTests(unittest.TestCase):
         # from the network is a decision someone has to make on purpose.
         self.assertIn("127.0.0.1", self.strings)
 
+    def node_parameter_names(self) -> set[str]:
+        """The keys of the parameter dicts handed to the console Node."""
+        names = set()
+        for node in ast.walk(self.tree):
+            if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Node"):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg != "parameters":
+                    continue
+                for entry in ast.walk(keyword.value):
+                    if isinstance(entry, ast.Dict):
+                        names |= {
+                            key.value for key in entry.keys if isinstance(key, ast.Constant)
+                        }
+        return names
+
+    def test_the_resident_page_has_its_own_port(self) -> None:
+        # Its own port, so the restricted page and the full console are never
+        # the same address; and handed to the node, or the argument is inert.
+        names = self.node_parameter_names()
+
+        for name in ("resident_host", "resident_port", "allowed_hosts"):
+            with self.subTest(name=name):
+                self.assertIn(name, names)
+        self.assertIn("8081", self.strings)
+
     def test_setup_py_installs_the_launch_file(self) -> None:
         # A launch file that is not installed is one `ros2 launch` cannot find.
         self.assertIn("launch/*.launch.py", code_strings(SETUP.read_text()))
