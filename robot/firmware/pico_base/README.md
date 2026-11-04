@@ -1,6 +1,6 @@
 # Pico base controller
 
-The program on the Raspberry Pi Pico H that turns the four mecanum wheels.
+The program on the Raspberry Pi Pico (H or 2 W) that turns the four mecanum wheels.
 The Pi tells it how fast each wheel should turn, about 20 times a second, and
 it reports back how far each wheel has turned. It is the last link in the
 chain every motion command follows:
@@ -50,7 +50,7 @@ The pin table at the top of `main.py` is the reference; this is a summary.
 | GP12, GP13 | front-right encoder A, B |
 | GP14, GP15 | rear-left encoder A, B |
 | GP16, GP17 | rear-right encoder A, B |
-| GP22 | R_EN **and** L_EN of all four boards, plus a 10 kOhm resistor to GND |
+| GP22 | R_EN **and** L_EN of all four boards, plus a 4.7 kOhm resistor to GND |
 | GP21 | service-mode jumper (to GND only when updating files) |
 | 3V3 (OUT), pin 36 | VCC of all four boards |
 | GND | GND of all four boards, the encoders, and the battery negative |
@@ -69,9 +69,9 @@ Three things that will damage parts if missed:
 
 ## Putting it on the Pico
 
-1. Install MicroPython for the Pico: hold BOOTSEL, plug the Pico in, and copy
-   the Raspberry Pi Pico `.uf2` from micropython.org onto the drive that
-   appears.
+1. Install MicroPython: hold BOOTSEL, plug the Pico in, and copy the `.uf2`
+   from micropython.org onto the drive that appears. It must match the board:
+   a Pico 2 W needs the **Pico 2 W** build, a Pico H the **Pico** build.
 2. Copy `base_logic.py` and `main.py` onto the Pico, with Thonny or with
    `mpremote cp base_logic.py main.py :`.
 3. Unplug and replug. The on-board LED stays dark: motors off, waiting.

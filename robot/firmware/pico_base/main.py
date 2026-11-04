@@ -1,6 +1,6 @@
 """Pico base controller: four BTS7960 motor drivers and four wheel encoders.
 
-Runs at power-up on a Raspberry Pi Pico H under MicroPython. Takes wheel
+Runs at power-up on a Raspberry Pi Pico H or Pico 2 W under MicroPython. Takes wheel
 commands from the Pi over USB serial and reports encoder counts back; the
 line protocol and every rule about when a wheel may turn are in
 base_logic.py, which is tested on a PC. This file only touches pins.
@@ -30,9 +30,10 @@ WIRING NOTES
     levels match the Pico's. All grounds are common: Pico GND, every board's
     GND, and the battery negative.
   - R_EN and L_EN on every board are tied together and to ENABLE_PIN, with
-    one 10 kOhm resistor from that line to GND. The Pico's own pull-downs
-    hold the line low while it boots; the resistor keeps it low if the wire
-    to the Pico comes loose or the Pico is unplugged.
+    one 4.7 kOhm resistor from that line to GND. It holds the line low while
+    the Pico boots, and if the wire comes loose or the Pico is unplugged. Do
+    not rely on the chip's own pull-down, and do not use a bigger resistor:
+    early RP2350 chips (Pico 2 W) have a pin leakage fault, erratum E9.
   - Nothing else may drive the BTS7960 inputs. See AGENTS.md: no other
     node, board or remote connects to the motor controller.
 
@@ -51,15 +52,16 @@ from machine import Pin
 # here. GPnn numbers, not the physical pin numbers printed on the board edge.
 # ---------------------------------------------------------------------------
 
-# R_EN + L_EN of all four BTS7960 boards, with a 10 kOhm pull-down to GND.
+# R_EN + L_EN of all four BTS7960 boards, with a 4.7 kOhm pull-down to GND.
 # High = drivers allowed to drive. Low = every motor output off.
 ENABLE_PIN = 22
 
 # Jumper to GND at power-up for service mode (see above).
 SERVICE_PIN = 21
 
-# On-board LED: lit while the motor drivers are enabled.
-LED_PIN = 25
+# On-board LED: lit while the motor drivers are enabled. By name, not number:
+# on a Pico 2 W it hangs off the wireless chip, and GP25 is not the LED.
+LED_PIN = "LED"
 
 # One row per wheel, in protocol order FL, FR, RL, RR.
 #   RPWM, LPWM      the BTS7960's two PWM inputs (forward, reverse). Each
@@ -101,6 +103,7 @@ import machine  # noqa: E402
 from machine import PWM  # noqa: E402
 
 _led = Pin(LED_PIN, Pin.OUT, value=0)
+_led_lit = False
 _pwms = []
 for _row in WHEELS:
     for _pin in (_row[1], _row[2]):
@@ -110,12 +113,21 @@ for _row in WHEELS:
         _pwms.append(_pwm)
 
 
+def show_led(lit):
+    """Only on a change: on a Pico 2 W each write is a talk with the wireless
+    chip, too slow to repeat on every pass of the main loop."""
+    global _led_lit
+    if lit != _led_lit:
+        _led_lit = lit
+        _led.value(1 if lit else 0)
+
+
 def motors_off():
     """Disable first, then zero the duties: the order that never glitches."""
     _enable.value(0)
     for pwm in _pwms:
         pwm.duty_u16(0)
-    _led.value(0)
+    show_led(False)
 
 
 def apply(enabled, commands):
@@ -129,7 +141,7 @@ def apply(enabled, commands):
         _pwms[2 * index + 1].duty_u16(reverse)
     # Duties first, enable last, so no wheel starts on a stale duty.
     _enable.value(1)
-    _led.value(1)
+    show_led(True)
 
 
 # Encoder counts since the last report, added to by the interrupt handlers.
