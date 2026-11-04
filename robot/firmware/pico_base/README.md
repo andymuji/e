@@ -94,6 +94,17 @@ from the keyboard. For each wheel in turn:
    should make `x` grow. If one wheel counts the wrong way, set its
    `encoder_rev` to `True`.
 
+## Spin one wheel at a time
+
+With the chassis raised and the Pico plugged in, run this from the repository
+root (`pip install pyserial` first if you are on a Mac):
+
+    PYTHONPATH=robot/ros2_ws/src/robot_base python3 -m robot_base.wheel_test
+
+Pick a wheel, pick forward or backward, and press Enter to stop it. It starts
+at 20% power; add `--power 40` if the wheel doesn't move. This goes straight
+to the Pico and skips the safety gate, so it is for wheels in the air only.
+
 ## Numbers still to measure
 
 These live in `robot/ros2_ws/src/robot_bringup/config/base.yaml` and are

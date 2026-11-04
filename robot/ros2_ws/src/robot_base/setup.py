@@ -23,6 +23,7 @@ setup(
     entry_points={
         "console_scripts": [
             "base_node = robot_base.base_node:main",
+            "wheel_test = robot_base.wheel_test:main",
         ],
     },
 )
