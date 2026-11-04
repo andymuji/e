@@ -1,4 +1,4 @@
-"""Spin one wheel at a time: pick a wheel and a direction, press Enter to stop.
+"""Spin one wheel, or all four: pick them and a direction, press Enter to stop.
 
 From the repository root, on whichever computer the Pico is plugged into:
 
@@ -29,16 +29,19 @@ from robot_base.protocol import (
 )
 
 WHEELS = ("front left", "front right", "rear left", "rear right")
+CHOICES = (*WHEELS, "all four wheels")
+ALL = len(WHEELS)  # Index of "all four wheels" in CHOICES.
 DIRECTIONS = {"f": 1, "b": -1}
 STOPPED = (0,) * WHEEL_COUNT
 SEND_PERIOD = 0.05  # Same 20 Hz as base_node: five chances before the timeout.
 
 
 def wheel_command(wheel: int, direction: int, power: int) -> tuple[int, ...]:
-    """The four wheel commands that spin one wheel at `power` percent."""
-    commands = [0] * WHEEL_COUNT
-    commands[wheel] = direction * power * FULL_SCALE // 100
-    return tuple(commands)
+    """The four wheel commands that spin `wheel` (or ALL) at `power` percent."""
+    speed = direction * power * FULL_SCALE // 100
+    return tuple(
+        speed if wheel in (index, ALL) else 0 for index in range(WHEEL_COUNT)
+    )
 
 
 def pico_messages(data: bytes) -> list[str]:
@@ -110,22 +113,22 @@ def ask(prompt: str, answers: list[str]) -> str:
 def run(link: Link, power: int) -> None:
     while not link.done.is_set():
         print()
-        for number, name in enumerate(WHEELS, start=1):
+        for number, name in enumerate(CHOICES, start=1):
             print(f"  {number}  {name}")
-        wheel = ask("Which wheel? (1-4, q to quit) ", ["1", "2", "3", "4", "q"])
+        wheel = ask("Which wheel? (1-5, q to quit) ", ["1", "2", "3", "4", "5", "q"])
         if wheel == "q":
             return
         index = int(wheel) - 1
         direction = ask("Which way? (f forward, b backward) ", list(DIRECTIONS))
         link.commands = wheel_command(index, DIRECTIONS[direction], power)
         try:
-            input(f"Spinning {WHEELS[index]} at {power}%. Press Enter to stop. ")
+            input(f"Spinning {CHOICES[index]} at {power}%. Press Enter to stop. ")
         finally:
             link.commands = STOPPED
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Spin one wheel at a time.")
+    parser = argparse.ArgumentParser(description="Spin one wheel, or all four.")
     parser.add_argument("--port", help="the Pico's serial port (default: find it)")
     parser.add_argument(
         "--power",

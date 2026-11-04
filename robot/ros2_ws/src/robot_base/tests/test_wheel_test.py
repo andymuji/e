@@ -3,6 +3,7 @@ import unittest
 
 from robot_base.protocol import seal, unseal
 from robot_base.wheel_test import (
+    ALL,
     STOPPED,
     Link,
     pico_messages,
@@ -31,6 +32,9 @@ class WheelCommandTests(unittest.TestCase):
     def test_only_the_chosen_wheel_turns(self) -> None:
         self.assertEqual(wheel_command(0, 1, 20), (200, 0, 0, 0))
         self.assertEqual(wheel_command(3, -1, 100), (0, 0, 0, -1000))
+
+    def test_all_four_wheels_turn_together(self) -> None:
+        self.assertEqual(wheel_command(ALL, -1, 20), (-200, -200, -200, -200))
 
 
 class PicoMessageTests(unittest.TestCase):
