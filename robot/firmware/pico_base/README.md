@@ -142,7 +142,8 @@ Then:
    a third of a second.
 
 The wheels only turn while a button is held. The power stops at 50% because
-four motors at once can trip the battery's 10 A limit. This shows each wheel
+four motors at once can trip the battery, which gives 10 A steadily and
+15 A for 10 seconds at most. This shows each wheel
 turns the right way; it does not show the robot really slides sideways, which
 takes a floor test. It skips the safety gate, so wheels in the air only.
 

@@ -35,7 +35,8 @@ from robot_base.wheel_test import STOPPED, Link, find_port, open_pico
 
 PAGE_PORT = 8090
 HOLD_TIMEOUT = 0.3  # The page renews a move every 0.1 s: three chances.
-# Four motors at once draw far more than one, and the battery cuts out at 10 A.
+# Four motors at once draw far more than one, and the battery gives only 10 A
+# steadily, 15 A for 10 seconds.
 # This is a guess, not a measurement; raise it only once the current is known.
 MAX_POWER = 50
 LOCAL_NAMES = ("localhost", "127.0.0.1")
