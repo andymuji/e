@@ -80,18 +80,25 @@ class Link:
             pass  # Already gone; the Pico's own timeout stops the motors.
         self.port.close()
 
+    def current(self) -> tuple[int, ...]:
+        """What to send right now. Read once per send, on the sending thread."""
+        return self.commands
+
+    def report(self, message: str) -> None:
+        print(f"\n{message}")
+
     def _send(self, commands: tuple[int, ...]) -> None:
         self.port.write((format_motor_line(commands) + "\n").encode())
 
     def _run(self) -> None:
         try:
             while not self.done.is_set():
-                self._send(self.commands)
+                self._send(self.current())
                 for message in pico_messages(self.port.read(4096)):
-                    print(f"\n{message}")
+                    self.report(message)
                 self.done.wait(SEND_PERIOD)
         except OSError as error:  # pyserial's SerialException is an OSError.
-            print(f"\nLost the Pico: {error}. Press Enter to quit.")
+            self.report(f"Lost the Pico: {error}. Press Enter to quit.")
             self.done.set()
 
 
@@ -100,6 +107,12 @@ def find_port() -> str:
     if not ports:
         raise SystemExit("No Pico found. Is its USB cable plugged in?")
     return ports[0]
+
+
+def open_pico(name: str):
+    import serial  # Here, so the tests need no pyserial.
+
+    return serial.Serial(name, 115200, timeout=0, write_timeout=0.1)
 
 
 def ask(prompt: str, answers: list[str]) -> str:
@@ -140,10 +153,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    import serial  # Here, so the tests need no pyserial.
-
     port = args.port or find_port()
-    link = Link(serial.Serial(port, 115200, timeout=0, write_timeout=0.1))
+    link = Link(open_pico(port))
     link.start()
     print(f"Connected on {port}. Ctrl-C stops at any time.")
     try:

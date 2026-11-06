@@ -24,6 +24,7 @@ setup(
         "console_scripts": [
             "base_node = robot_base.base_node:main",
             "wheel_test = robot_base.wheel_test:main",
+            "wheel_test_site = robot_base.wheel_test_site:main",
         ],
     },
 )

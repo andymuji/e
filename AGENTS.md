@@ -49,7 +49,7 @@ measured values before any hardware test.
 - Loss of the command stream is a stop condition, not a reason to hold the last velocity. Both `sensor_timeout` and `command_timeout` fail closed.
 - Do not run hardware tests without the documented tether, exclusion zone, and second operator.
 - Do not connect another node directly to the motor controller's velocity input.
-  The one exception is `robot_base/wheel_test.py`, a bench test the owner approved on 2026-11-04: it talks straight to the Pico, skips the gate, and is for wheels in the air only.
+  The one exception is the bench test: `robot_base/wheel_test.py`, approved by the owner on 2026-11-04, and its web page `robot_base/wheel_test_site.py`, approved on 2026-11-06. Both talk straight to the Pico, skip the gate, and are for wheels in the air only. The page stays on this computer: it listens on 127.0.0.1 only, has no login, and must not be opened to the network or merged into the operator console.
 - `robot_telemetry` only listens. It publishes nothing - never a velocity, never `emergency_stop_reset`. A recorder that can act is no longer a witness.
 - The operator console may request destinations and work the *software* stop. It never publishes a velocity, and the physical stop is independent of it.
 - Nothing in `robot_voice` publishes `emergency_stop_reset`. A voice that can undo a stop is not a stop.

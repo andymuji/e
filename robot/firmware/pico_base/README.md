@@ -106,6 +106,46 @@ to stop. It starts
 at 20% power; add `--power 40` if the wheel doesn't move. This goes straight
 to the Pico and skips the safety gate, so it is for wheels in the air only.
 
+## Try every move from a web page
+
+A page for holding down forward, backward, sideways, diagonal and turning
+moves, with a picture of how each wheel should be turning. From the
+repository root, on the computer the Pico is plugged into:
+
+    PYTHONPATH=robot/ros2_ws/src/robot_base python3 -m robot_base.wheel_test_site
+
+then open <http://localhost:8090>. Add `--practice` to try the page with no
+Pico at all; nothing moves. It needs pyserial, the same as the menu above
+(`sudo apt install python3-serial` on the Pi).
+
+If the Pico is plugged into the Pi, connect from the Mac with this instead of
+plain ssh, then open the same address on the Mac:
+
+    ssh -L 8090:127.0.0.1:8090 <user>@<pi>
+
+Before connecting the battery:
+
+1. The inline fuse is in its holder.
+2. The chassis is raised and no wheel can touch anything, including a cable.
+3. A second person has a hand on the battery connection. The page's STOP is
+   software, and pulling that connection is the only real stop until the
+   emergency stop is wired.
+
+Then:
+
+1. Hold **Forward** at 20%. All four wheels must turn the way that would drive
+   the robot forward. Fix any that do not (`motor_rev` in the pin table) before
+   trying anything else, or every other move will look wrong too.
+2. Try each move and compare the wheels with the picture. Raise the power only
+   if a wheel does not turn.
+3. Check the stop: hold a move and close the tab. The wheels stop within about
+   a third of a second.
+
+The wheels only turn while a button is held. The power stops at 50% because
+four motors at once can trip the battery's 10 A limit. This shows each wheel
+turns the right way; it does not show the robot really slides sideways, which
+takes a floor test. It skips the safety gate, so wheels in the air only.
+
 ## Numbers still to measure
 
 These live in `robot/ros2_ws/src/robot_bringup/config/base.yaml` and are
