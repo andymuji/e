@@ -15,6 +15,8 @@ thread keeps sending the current one. It also keeps reading: a Pico whose
 reports go unread blocks, and its watchdog then resets it.
 """
 
+from __future__ import annotations
+
 import argparse
 import glob
 import threading

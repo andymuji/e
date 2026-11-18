@@ -24,6 +24,8 @@ job, because the Link goes on sending the current command for as long as it
 runs.
 """
 
+from __future__ import annotations
+
 import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json

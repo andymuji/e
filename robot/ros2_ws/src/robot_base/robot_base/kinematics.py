@@ -13,6 +13,8 @@ sideways. x is forward, y is left, z is up, rotation is anticlockwise.
 with r the wheel radius and k = half_wheelbase + half_track.
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 import math

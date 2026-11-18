@@ -12,6 +12,8 @@ end with the wheels stopped. Zero is still sent on purpose on every path
 this node controls, so that stopping never depends on that timeout alone.
 """
 
+from __future__ import annotations
+
 import math
 import time
 
