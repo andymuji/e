@@ -6,6 +6,8 @@ and one in a ROS package, and test_firmware_contract.py feeds each side's
 output to the other's parser so they cannot drift apart unnoticed.
 """
 
+from __future__ import annotations
+
 from collections.abc import Sequence
 from dataclasses import dataclass
 
