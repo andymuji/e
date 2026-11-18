@@ -102,8 +102,9 @@ root (`pip install pyserial` first if you are on a Mac):
     PYTHONPATH=robot/ros2_ws/src/robot_base python3 -m robot_base.wheel_test
 
 Pick a wheel (or 5 for all four), pick forward or backward, and press Enter
-to stop. It starts
-at 20% power; add `--power 40` if the wheel doesn't move. This goes straight
+to stop. It starts at 20% power (`--power 40` starts higher). While it spins,
+type `+` or `-` and Enter to go 10% faster or slower, or a number such as
+`35` to set it; anything else stops. This goes straight
 to the Pico and skips the safety gate, so it is for wheels in the air only.
 
 ## Try every move from a web page

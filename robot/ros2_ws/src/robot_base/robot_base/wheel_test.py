@@ -36,6 +36,7 @@ ALL = len(WHEELS)  # Index of "all four wheels" in CHOICES.
 DIRECTIONS = {"f": 1, "b": -1}
 STOPPED = (0,) * WHEEL_COUNT
 SEND_PERIOD = 0.05  # Same 20 Hz as base_node: five chances before the timeout.
+POWER_STEP = 10  # Percent added or taken away by + and -.
 
 
 def wheel_command(wheel: int, direction: int, power: int) -> tuple[int, ...]:
@@ -44,6 +45,21 @@ def wheel_command(wheel: int, direction: int, power: int) -> tuple[int, ...]:
     return tuple(
         speed if wheel in (index, ALL) else 0 for index in range(WHEEL_COUNT)
     )
+
+
+def next_power(power: int, answer: str) -> int | None:
+    """The power after typing `answer` while spinning; None means stop.
+
+    + and - step it, a number from 1 to 100 sets it, and anything else -
+    including a bare Enter or a typo - stops, so stopping is never a guess.
+    """
+    if answer == "+":
+        return min(power + POWER_STEP, 100)
+    if answer == "-":
+        return max(power - POWER_STEP, 1)
+    if answer.isdigit() and 1 <= int(answer) <= 100:
+        return int(answer)
+    return None
 
 
 def pico_messages(data: bytes) -> list[str]:
@@ -135,9 +151,17 @@ def run(link: Link, power: int) -> None:
             return
         index = int(wheel) - 1
         direction = ask("Which way? (f forward, b backward) ", list(DIRECTIONS))
-        link.commands = wheel_command(index, DIRECTIONS[direction], power)
         try:
-            input(f"Spinning {CHOICES[index]} at {power}%. Press Enter to stop. ")
+            while True:
+                link.commands = wheel_command(index, DIRECTIONS[direction], power)
+                answer = input(
+                    f"Spinning {CHOICES[index]} at {power}%. "
+                    "+ faster, - slower, a number sets it, Enter stops: "
+                )
+                new_power = next_power(power, answer.strip())
+                if new_power is None:
+                    break
+                power = new_power  # Kept for the next wheel too.
         finally:
             link.commands = STOPPED
 

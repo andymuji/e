@@ -6,6 +6,7 @@ from robot_base.wheel_test import (
     ALL,
     STOPPED,
     Link,
+    next_power,
     pico_messages,
     wheel_command,
 )
@@ -35,6 +36,21 @@ class WheelCommandTests(unittest.TestCase):
 
     def test_all_four_wheels_turn_together(self) -> None:
         self.assertEqual(wheel_command(ALL, -1, 20), (-200, -200, -200, -200))
+
+
+class NextPowerTests(unittest.TestCase):
+    def test_plus_and_minus_step_within_1_to_100(self) -> None:
+        self.assertEqual(next_power(20, "+"), 30)
+        self.assertEqual(next_power(95, "+"), 100)
+        self.assertEqual(next_power(20, "-"), 10)
+        self.assertEqual(next_power(5, "-"), 1)
+
+    def test_a_number_sets_it(self) -> None:
+        self.assertEqual(next_power(20, "45"), 45)
+
+    def test_enter_typos_and_out_of_range_numbers_stop(self) -> None:
+        for answer in ("", "q", "++", "0", "150", "-5"):
+            self.assertIsNone(next_power(20, answer), answer)
 
 
 class PicoMessageTests(unittest.TestCase):
